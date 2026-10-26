@@ -1,0 +1,13 @@
+# Entorno virtual de Python
+.venv/
+
+# Credenciales y variables privadas
+.env
+.env.*
+
+# Permitir archivos de ejemplo
+!.env.example
+
+# Archivos temporales de Python
+__pycache__/
+*.pyc

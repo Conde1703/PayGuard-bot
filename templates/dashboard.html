@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PayGuard Admin</title>
+    <style>
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f6; color: #333; margin: 0; padding: 20px; }
+        .header { 
+            background-color: #2c3e50; 
+            color: white; 
+            padding: 15px 25px; 
+            border-radius: 8px; 
+            margin-bottom: 20px; 
+            display: flex; 
+            align-items: center; 
+            gap: 18px; 
+        }
+        .header img {
+            width: 52px;
+            height: 52px;
+            border-radius: 50%;
+            object-fit: cover;
+            border: 2px solid #2ecc71;
+            box-shadow: 0 0 10px rgba(46, 204, 113, 0.5);
+        }
+        .header h1 {
+            margin: 0;
+            font-size: 24px;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+        .card { background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        .status-badge { background-color: #27ae60; color: white; padding: 5px 10px; border-radius: 15px; font-size: 14px; font-weight: bold; }
+        .status-badge-agent { background-color: #2980b9; color: white; padding: 3px 8px; border-radius: 10px; font-size: 12px; }
+        .log-box { background-color: #1e1e1e; color: #00ff00; padding: 15px; border-radius: 5px; font-family: monospace; font-size: 13px; overflow-x: auto; }
+        .log-line { margin: 5px 0; border-bottom: 1px solid #333; padding-bottom: 5px; }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { text-align: left; padding: 10px; border-bottom: 1px solid #ddd; }
+        th { background-color: #f8f9fa; color: #555; }
+        .form-group { margin-bottom: 15px; }
+        label { display: block; margin-bottom: 5px; font-weight: bold; color: #444; }
+        input[type="text"], textarea { width: 100%; padding: 8px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
+        textarea { height: 70px; resize: vertical; }
+        button { background-color: #2c3e50; color: white; border: none; padding: 10px 18px; border-radius: 4px; cursor: pointer; font-size: 14px; }
+        button:hover { background-color: #1a252f; }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <!-- Referencia corregida a logo.png -->
+        <img src="/static/logo.png" alt="PayGuard Bot Logo">
+        <h1>PayGuard Admin - Centro de Mando SecOps</h1>
+    </div>
+    
+    <div class="card">
+        <h2>Estado del Sistema</h2>
+        <p><strong>Motor Principal:</strong> <span class="status-badge">{{ bot_status }}</span></p>
+        <p><strong>Agentes Activos:</strong> {{ agentes_count }}</p>
+    </div>
+
+    <!-- FORMULARIO DE ALTA DE AGENTES -->
+    <div class="card">
+        <h2>Crear Nuevo Agente de IA</h2>
+        <form id="formAgente" onsubmit="registrarAgente(event)">
+            <div class="form-group">
+                <label for="nombre">Nombre del Agente:</label>
+                <input type="text" id="nombre" required placeholder="Ej: Agente Phishing & URLs">
+            </div>
+            <div class="form-group">
+                <label for="descripcion">Descripción del Rol:</label>
+                <input type="text" id="descripcion" required placeholder="Ej: Análisis de enlaces sospechosos y correos fraudulentos">
+            </div>
+            <div class="form-group">
+                <label for="prompt">Prompt Maestro (Instrucciones de SecOps):</label>
+                <textarea id="prompt" required placeholder="Ej: Eres un analista de SecOps que clasifica URLs contra listas de reputación..."></textarea>
+            </div>
+            <button type="submit">Registrar Agente</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <h2>Agentes de IA Registrados</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>ID</th>
+                    <th>Nombre</th>
+                    <th>Descripción</th>
+                    <th>Estado</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for agente in agentes %}
+                <tr>
+                    <td>{{ agente.id }}</td>
+                    <td><strong>{{ agente.nombre }}</strong></td>
+                    <td>{{ agente.descripcion }}</td>
+                    <td>
+                        {% if agente.activo %}
+                            <span class="status-badge-agent">Activo</span>
+                        {% else %}
+                            <span style="background-color: #e74c3c;" class="status-badge-agent">Inactivo</span>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h2>Últimas Alertas del Bot</h2>
+        <div class="log-box">
+            {% for log in logs %}
+                <div class="log-line">> {{ log }}</div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <script>
+        async function registrarAgente(event) {
+            event.preventDefault();
+            const data = {
+                nombre: document.getElementById('nombre').value,
+                descripcion: document.getElementById('descripcion').value,
+                prompt_maestro: document.getElementById('prompt').value
+            };
+
+            const response = await fetch('/api/agentes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+
+            if (response.ok) {
+                window.location.reload();
+            } else {
+                alert('Error al registrar el agente en la base de datos.');
+            }
+        }
+    </script>
+</body>
+</html>
