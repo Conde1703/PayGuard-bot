@@ -1,28 +1,23 @@
 """
 core/motor.py
 Motor central unificado de IA para PayGuard Admin.
-Orquesta el triage entre Access (🟣) e InfoSec (🟢) basándose en las bases de conocimiento.
-Genera respuestas estructuradas usando Slack Block Kit con integración REAL de LLM.
+Llamada directa vía REST API a Gemini para evitar bloqueos SSL/gRPC del proxy corporativo.
 """
 
 import os
 import re
 from typing import Dict, Any
+import requests
 from dotenv import load_dotenv
-from openai import OpenAI
 from core.knowledge import buscar_en_conocimiento
 
-# Forzamos la carga del .env antes de inicializar la clase
+# Forzamos la carga del .env
 load_dotenv()
 
 class MotorIA:
     def __init__(self):
-        # Detecta si hay una API Key configurada en el .env
-        self.api_key = os.getenv("AI_API_KEY") or os.getenv("OPENAI_API_KEY")
+        self.api_key = os.getenv("GEMINI_API_KEY")
         self.en_produccion = bool(self.api_key)
-        
-        if self.en_produccion:
-            self.client = OpenAI(api_key=self.api_key)
 
     def generar_respuesta(
         self,
@@ -36,12 +31,12 @@ class MotorIA:
         # 1. Búsqueda en los documentos físicos (RAG)
         analisis = buscar_en_conocimiento(area, mensaje_usuario)
         
-        # Si NO hay API Key, usamos el simulador
+        # Si NO hay API Key, usamos el simulador offline
         if not self.en_produccion:
             return self._simular_triage_secops(agente_nombre, system_prompt, analisis, mensaje_usuario, user_id)
 
         # =========================================================
-        # MODO PRODUCCIÓN: GENERACIÓN CON LLM REAL (OpenAI)
+        # MODO PRODUCCIÓN: LLAMADA DIRECTA REST A GEMINI
         # =========================================================
         equipo = analisis["equipo"]
         emoji = analisis["emoji"]
@@ -57,37 +52,59 @@ class MotorIA:
             contexto_rag = "\n\n".join([f["texto"] for f in fragmentos])
             urls_encontradas = re.findall(r"https?://[^\s\)\>\"\'\]]+", contexto_rag)
             if urls_encontradas:
-                # Limpiar el punto ortográfico u otros signos al final de la URL
                 url_ticket = urls_encontradas[0].rstrip(".,;!?")
         else:
             contexto_rag = "No se encontró información en la base de conocimiento para esta consulta."
 
-        prompt_interno = (
-            f"{system_prompt}\n\n"
+        prompt_completo = (
+            f"INSTRUCCIONES DEL SISTEMA:\n{system_prompt}\n\n"
             f"REGLAS ESTRICTAS DE RESPUESTA:\n"
             f"1. Eres el agente {agente_nombre}.\n"
             f"2. Basa tu respuesta ÚNICAMENTE en la siguiente directiva de la base de conocimiento.\n"
             f"3. Responde al usuario de forma natural, explicando los pasos a seguir de manera concisa (máximo 2-3 párrafos).\n"
             f"4. NO saludes (el sistema ya lo hace en la cabecera).\n"
-            f"5. NO incluyas las URLs en el texto si detectas que son de Jira (el sistema creará un botón automático).\n\n"
+            f"5. NO incluyas URLs en el texto si corresponden a Jira (el sistema genera un botón automático).\n\n"
             f"--- INICIO DIRECTIVA RECUPERADA ---\n"
             f"{contexto_rag}\n"
-            f"--- FIN DIRECTIVA RECUPERADA ---\n"
+            f"--- FIN DIRECTIVA RECUPERADA ---\n\n"
+            f"CONSULTA DEL USUARIO:\n{mensaje_usuario}"
         )
 
         try:
-            response = self.client.chat.completions.create(
-                model="gpt-3.5-turbo", 
-                messages=[
-                    {"role": "system", "content": prompt_interno},
-                    {"role": "user", "content": mensaje_usuario}
+            # Endpoint oficial v1beta con modelo estable gemini-1.5-flash
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key={self.api_key}"
+            
+            payload = {
+                "contents": [
+                    {
+                        "parts": [
+                            {"text": prompt_completo}
+                        ]
+                    }
                 ],
-                temperature=0.3
-            )
-            respuesta_llm = response.choices[0].message.content.strip()
-        except Exception as e:
-            respuesta_llm = f"❌ *Error de conexión con el Motor de IA:* `{str(e)}`\nPor favor, notifica al equipo de SecOps."
+                "generationConfig": {
+                    "temperature": 0.3
+                }
+            }
 
+            # verify=False permite superar la interceptación del certificado de la VPN corporativa
+            response = requests.post(
+                url,
+                json=payload,
+                headers={"Content-Type": "application/json"},
+                verify=False,
+                timeout=20
+            )
+
+            if response.status_code == 200:
+                data = response.json()
+                respuesta_llm = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+            else:
+                respuesta_llm = f"⚠️ *Aviso de Gemini ({response.status_code}):* `{response.text}`"
+        except Exception as e:
+            respuesta_llm = f"❌ *Error de conexión:* `{str(e)}`\nPor favor, notifica al equipo de SecOps."
+
+        # Construcción de la interfaz de Slack (Block Kit)
         bloques = [
             {
                 "type": "section",
@@ -146,8 +163,7 @@ class MotorIA:
             ]
         })
 
-        texto_fallback = f"Resolución de triage generada por IA para {equipo} {emoji}"
-        return {"texto": texto_fallback, "bloques": bloques}
+        return {"texto": f"Resolución generada por IA para {equipo} {emoji}", "bloques": bloques}
 
     def _simular_triage_secops(
         self,
@@ -168,7 +184,6 @@ class MotorIA:
             lineas = [l.strip() for l in mejor_fragmento.split("\n") if l.strip()]
             resumen_directiva = "\n".join(lineas[:6])
             
-            # Extraer y limpiar URL
             urls_encontradas = re.findall(r"https?://[^\s\)\>\"\'\]]+", mejor_fragmento)
             url_ticket = urls_encontradas[0].rstrip(".,;!?") if urls_encontradas else None
 

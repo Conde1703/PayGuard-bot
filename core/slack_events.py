@@ -111,17 +111,12 @@ def register_listeners(app, allowed_channel_id):
     
     @app.action("click_jira")
     def handle_click_jira(ack, body, say):
-        # 1. Enviar acuse de recibo a Slack INMEDIATAMENTE para quitar la advertencia ⚠️
         ack() 
-        
         user_id = body["user"]["id"]
         thread_ts = body["message"].get("thread_ts") or body["message"]["ts"]
         logger.info(f"INTERACCIÓN - Usuario {user_id} hizo clic en el botón de Jira.")
         
-        # 2. Enviar respuesta confirmando la redirección
         respuesta = f"✅ <@{user_id}>, fuiste redirigido al portal de Jira Service Desk. Si necesitas más ayuda con este incidente, indícalo en este hilo."
-        
-        # 3. Guardar la acción en la base de datos para el Dashboard
         guardar_mensaje(thread_ts=thread_ts, remitente="PayGuard-bot SecOps", tipo="bot", contenido=respuesta)
         say(text=respuesta, thread_ts=thread_ts)
 
