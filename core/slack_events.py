@@ -1,100 +1,146 @@
+from datetime import datetime
 from core.logger import logger
+from core.database import SessionLocal, Agente, MensajeHilo
+from core.motor import motor_ia 
+
+def guardar_mensaje(thread_ts: str, remitente: str, tipo: str, contenido: str):
+    """Registra cada turno de conversación en SQLite para auditoría y visualización web"""
+    ahora = datetime.now()
+    db = SessionLocal()
+    try:
+        nuevo_mensaje = MensajeHilo(
+            thread_ts=thread_ts,
+            remitente=remitente,
+            tipo=tipo,
+            contenido=contenido,
+            fecha=ahora.strftime("%Y-%m-%d"),
+            hora=ahora.strftime("%H:%M:%S")
+        )
+        db.add(nuevo_mensaje)
+        db.commit()
+    finally:
+        db.close()
+
+def obtener_agente_para_canal(canal_id: str):
+    """
+    Sistema de Enrutamiento Dinámico:
+    1. Busca un agente activo asignado específicamente a este canal.
+    2. Si no hay ninguno específico, asigna el primer agente activo disponible.
+    """
+    db = SessionLocal()
+    try:
+        # Prioridad 1: Agente asignado a este canal específico
+        agente = db.query(Agente).filter(
+            Agente.canal_slack == canal_id,
+            Agente.activo == True
+        ).first()
+
+        # Prioridad 2: Si el canal tiene agentes registrados pero están pausados
+        if not agente:
+            agente_pausado = db.query(Agente).filter(
+                Agente.canal_slack == canal_id,
+                Agente.activo == False
+            ).first()
+            if agente_pausado:
+                return agente_pausado, False
+
+        # Prioridad 3: Primer agente activo por defecto
+        if not agente:
+            agente = db.query(Agente).filter(Agente.activo == True).first()
+
+        return agente, True if agente and agente.activo else False
+    finally:
+        db.close()
 
 def register_listeners(app, allowed_channel_id):
     @app.event("message")
     def handle_message_events(event, say):
-        # Ignorar mensajes de bots y eventos especiales
+        # Descartar mensajes generados por bots o del sistema
         if event.get("bot_id") or event.get("subtype"):
             return
 
-        # Ignorar si no es el canal permitido
-        if allowed_channel_id and event.get("channel") != allowed_channel_id:
-            return
-
-        # Leer el mensaje y el usuario
-        text = (event.get("text") or "").lower()
+        canal_actual = event.get("channel")
+        text = event.get("text") or ""
         user_id = event.get("user")
+        ts = event.get("ts")
 
-        # Detectar solicitudes relacionadas con VPN o FortiClient
-        if "vpn" not in text and "forticlient" not in text:
+        # 1. ENRUTAMIENTO DINÁMICO
+        agente, esta_activo = obtener_agente_para_canal(canal_actual)
+
+        # Si no hay agentes en el sistema
+        if not agente:
+            logger.info(f"SOLICITUD IGNORADA - No hay agentes configurados para canal: {canal_actual}")
             return
 
-        # Registrar el evento en los logs
-        logger.info(f"ALERTA SECOPS - Usuario: {user_id} reportó: '{text}'")
+        # Registrar la pregunta del usuario en el hilo
+        guardar_mensaje(thread_ts=ts, remitente=f"Usuario ({user_id})", tipo="usuario", contenido=text)
 
-        # Construcción de interfaz con Block Kit
-        bloques_mensaje = [
-            {
-                "type": "section",
-                "text": {
-                    "type": "mrkdwn",
-                    "text": f"Hola <@{user_id}>, soy *PayGuard-bot DEV* 🛡️.\nHe detectado que tienes problemas con tu conexión (VPN/FortiClient).\n\n¿Cómo prefieres continuar?"
-                }
-            },
-            {
-                "type": "actions",
-                "elements": [
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "text": "📖 Ver guía de solución",
-                            "emoji": True
-                        },
-                        "value": "btn_guia_vpn",
-                        "action_id": "action_ver_guia"
-                    },
-                    {
-                        "type": "button",
-                        "text": {
-                            "type": "plain_text",
-                            "text": "🎫 Abrir ticket Jira",
-                            "emoji": True
-                        },
-                        "value": "btn_ticket_jira",
-                        "action_id": "action_abrir_ticket"
-                    }
-                ]
-            }
-        ]
+        # 2. VALIDAR ESTADO OPERATIVO (Gobernanza desde PayGuard Admin)
+        if not esta_activo:
+            mensaje_bloqueo = (
+                f"⚠️ Hola <@{user_id}>, el *{agente.nombre}* (*{agente.area}*) se encuentra "
+                f"actualmente *inactivo* en PayGuard Admin. Contacta a un administrador para reactivarlo."
+            )
+            logger.info(f"SOLICITUD DENEGADA - Agente '{agente.nombre}' inactivo. Usuario: {user_id}")
+            guardar_mensaje(thread_ts=ts, remitente=agente.nombre, tipo="bot", contenido=mensaje_bloqueo)
+            say(text=mensaje_bloqueo, thread_ts=ts)
+            return
 
-        # Responder dentro del hilo
-        say(
-            text="Alerta de SecOps detectada", 
-            blocks=bloques_mensaje,
-            thread_ts=event.get("ts")
+        # 3. PROCESAMIENTO CON EL MOTOR CENTRAL DE IA
+        logger.info(f"EJECUCIÓN AGENTE - Enrutado a '{agente.nombre}' ({agente.area}) para usuario: {user_id}")
+        
+        resultado = motor_ia.generar_respuesta(
+            agente_nombre=agente.nombre,
+            area=agente.area,
+            system_prompt=agente.prompt_maestro or "",
+            mensaje_usuario=text,
+            user_id=user_id
         )
 
-    # --- NUEVO: Manejadores de botones (Actions) ---
+        # 4. ENTREGA DE RESPUESTA Y AUDITORÍA
+        guardar_mensaje(thread_ts=ts, remitente=agente.nombre, tipo="bot", contenido=resultado["texto"])
+
+        if resultado.get("bloques"):
+            say(text=resultado["texto"], blocks=resultado["bloques"], thread_ts=ts)
+        else:
+            say(text=resultado["texto"], thread_ts=ts)
+
+    # ====================================================================
+    # LISTENERS PARA BOTONES DE ACCIÓN INTERACTIVA (BLOCK KIT ACTIONS)
+    # ====================================================================
     
-    @app.action("action_ver_guia")
-    def handle_ver_guia(ack, body, say):
-        # 1. Acuse de recibo obligatorio para quitar el warning en Slack
+    @app.action("click_jira")
+    def handle_click_jira(ack, body, say):
+        # 1. Enviar acuse de recibo a Slack INMEDIATAMENTE para quitar la advertencia ⚠️
         ack() 
         
-        # 2. Extraer datos del evento
         user_id = body["user"]["id"]
-        # Mantener la respuesta en el mismo hilo original
-        thread_ts = body["message"]["thread_ts"] if "thread_ts" in body["message"] else body["message"]["ts"]
+        thread_ts = body["message"].get("thread_ts") or body["message"]["ts"]
+        logger.info(f"INTERACCIÓN - Usuario {user_id} hizo clic en el botón de Jira.")
         
-        # 3. Registrar en logs
-        logger.info(f"INTERACCIÓN - Usuario {user_id} solicitó ver la guía de VPN.")
+        # 2. Enviar respuesta confirmando la redirección
+        respuesta = f"✅ <@{user_id}>, fuiste redirigido al portal de Jira Service Desk. Si necesitas más ayuda con este incidente, indícalo en este hilo."
         
-        # 4. Responder al usuario
-        say(
-            text=f"<@{user_id}>, revisa este artículo de nuestra base de conocimientos SecOps: *[Enlace simulado a Confluence/Notion]*",
-            thread_ts=thread_ts
-        )
+        # 3. Guardar la acción en la base de datos para el Dashboard
+        guardar_mensaje(thread_ts=thread_ts, remitente="PayGuard-bot SecOps", tipo="bot", contenido=respuesta)
+        say(text=respuesta, thread_ts=thread_ts)
+
+    @app.action("action_ver_guia")
+    def handle_ver_guia(ack, body, say):
+        ack()
+        user_id = body["user"]["id"]
+        thread_ts = body["message"].get("thread_ts") or body["message"]["ts"]
+        logger.info(f"INTERACCIÓN - Usuario {user_id} solicitó guía de conectividad.")
+        respuesta = f"<@{user_id}>, revisa el manual oficial de conexión segura: [Base de Conocimientos SecOps]"
+        guardar_mensaje(thread_ts=thread_ts, remitente="PayGuard-bot SecOps", tipo="bot", contenido=respuesta)
+        say(text=respuesta, thread_ts=thread_ts)
 
     @app.action("action_abrir_ticket")
     def handle_abrir_ticket(ack, body, say):
         ack()
         user_id = body["user"]["id"]
-        thread_ts = body["message"]["thread_ts"] if "thread_ts" in body["message"] else body["message"]["ts"]
-        
-        logger.info(f"INTERACCIÓN - Usuario {user_id} solicitó abrir un ticket en Jira.")
-        
-        say(
-            text=f"Entendido <@{user_id}>. Estoy preparando la conexión con Jira... *(Módulo de automatización en construcción 🚧)*",
-            thread_ts=thread_ts
-        )
+        thread_ts = body["message"].get("thread_ts") or body["message"]["ts"]
+        logger.info(f"INTERACCIÓN - Usuario {user_id} solicitó escalamiento a Jira.")
+        respuesta = f"Entendido <@{user_id}>. Creando pre-ticket en cola SecOps... *(Integración de Jira desacoplada en preparación 🚧)*"
+        guardar_mensaje(thread_ts=thread_ts, remitente="PayGuard-bot SecOps", tipo="bot", contenido=respuesta)
+        say(text=respuesta, thread_ts=thread_ts)
