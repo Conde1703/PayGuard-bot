@@ -1,456 +1,999 @@
 <!DOCTYPE html>
-<html lang="es">
+<html lang="es" class="h-full bg-slate-950 text-slate-100 antialiased selection:bg-emerald-500/20 selection:text-emerald-300">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PayGuard Admin</title>
+    <title>PayGuard Enterprise SecOps Admin</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Inter', 'system-ui', 'sans-serif'],
+                        mono: ['JetBrains Mono', 'monospace'],
+                    },
+                    colors: {
+                        surface: {
+                            base: '#090d16',
+                            card: '#0f172a',
+                            subtle: '#1e293b',
+                            border: 'rgba(255, 255, 255, 0.08)'
+                        }
+                    }
+                }
+            }
+        }
+    </script>
+
+    <!-- Lucide Icons & Chart.js -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
     <style>
-        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7f6; color: #333; margin: 0; padding: 20px; overflow-x: hidden; }
-        .header { background-color: #2c3e50; color: white; padding: 15px 25px; border-radius: 8px; margin-bottom: 20px; display: flex; align-items: center; gap: 18px; }
-        .header img { width: 52px; height: 52px; border-radius: 50%; object-fit: cover; border: 2px solid #2ecc71; box-shadow: 0 0 10px rgba(46, 204, 113, 0.5); }
-        .header h1 { margin: 0; font-size: 24px; font-weight: 600; }
-        
-        .card { background-color: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
-        .status-badge { background-color: #27ae60; color: white; padding: 5px 10px; border-radius: 15px; font-size: 14px; font-weight: bold; }
-        .status-badge-agent { color: white; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-weight: bold; }
-        
-        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th, td { text-align: left; padding: 12px 10px; border-bottom: 1px solid #ddd; vertical-align: middle; }
-        th { background-color: #f8f9fa; color: #555; font-size: 13px; text-transform: uppercase; }
-
-        .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin-bottom: 15px; }
-        .form-group { margin-bottom: 15px; }
-        label { display: block; margin-bottom: 5px; font-weight: bold; color: #444; font-size: 13px; }
-        input[type="text"], input[type="file"], input[type="search"], select, textarea { width: 100%; padding: 8px 10px; box-sizing: border-box; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; }
-        textarea { height: 80px; resize: vertical; }
-        
-        button.btn-primary { background-color: #2c3e50; color: white; border: none; padding: 10px 20px; border-radius: 4px; cursor: pointer; font-size: 14px; font-weight: 600; }
-        button.btn-primary:hover { background-color: #1a252f; }
-        
-        /* Botones de acción */
-        .btn-action { border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: bold; color: white; display: inline-flex; gap: 5px; align-items: center; }
-        .btn-replace { background-color: #8e44ad; }
-        .btn-replace:hover { background-color: #71368a; }
-        .btn-delete { background-color: #e74c3c; }
-        .btn-delete:hover { background-color: #c0392b; }
-        .btn-deactivate { background-color: #e67e22; }
-        .btn-activate { background-color: #27ae60; }
-        .btn-hilo { background-color: #4a154b; color: white; border: none; padding: 6px 12px; border-radius: 4px; cursor: pointer; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 6px; }
-        .btn-hilo:hover { background-color: #611f69; }
-
-        .tag-area { background-color: #e8f4f8; color: #2980b9; padding: 3px 8px; border-radius: 4px; font-size: 12px; font-weight: bold; }
-        .tag-channel { background-color: #f3e5f5; color: #6a1b9a; font-family: monospace; padding: 3px 6px; border-radius: 4px; font-size: 12px; }
-        .time-cell { font-family: 'Consolas', monospace; font-size: 12px; color: #555; }
-        .user-tag { background-color: #f1f2f6; color: #2f3542; font-family: 'Consolas', monospace; padding: 4px 8px; border-radius: 6px; font-size: 12px; font-weight: 600; border: 1px solid #ced6e0; }
-
-        /* Modal Reemplazar */
-        .modal-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0,0,0,0.5); z-index: 1000; display: none; align-items: center; justify-content: center; }
-        .modal-overlay.active { display: flex; }
-        .modal-content { background: white; width: 520px; max-width: 92vw; border-radius: 8px; padding: 22px; box-shadow: 0 10px 30px rgba(0,0,0,0.25); }
-        .modal-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #ddd; padding-bottom: 10px; margin-bottom: 15px; }
-        .modal-header h3 { margin: 0; font-size: 18px; }
-        .modal-close { background: none; border: none; font-size: 20px; cursor: pointer; color: #7f8c8d; }
-
-        /* Drawer Lateral Slack */
-        .drawer-overlay { position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; background: rgba(0, 0, 0, 0.4); z-index: 998; display: none; }
-        .drawer-overlay.active { display: block; }
-        .slack-drawer { position: fixed; top: 0; right: -460px; width: 440px; height: 100vh; background-color: #1a1d21; color: #d1d2d3; z-index: 999; box-shadow: -4px 0 20px rgba(0,0,0,0.4); display: flex; flex-direction: column; transition: right 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
-        .slack-drawer.open { right: 0; }
-        .drawer-header { padding: 16px 20px; border-bottom: 1px solid #2c3136; display: flex; justify-content: space-between; align-items: center; }
-        .drawer-header h3 { margin: 0; font-size: 18px; color: #ffffff; }
-        .drawer-close { background: none; border: none; color: #abacad; font-size: 20px; cursor: pointer; padding: 4px 8px; }
-        .drawer-body { flex: 1; padding: 20px; overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
-        .slack-msg { display: flex; gap: 12px; }
-        .avatar-box { width: 36px; height: 36px; border-radius: 4px; display: flex; align-items: center; justify-content: center; font-weight: bold; color: white; background-color: #e67e22; flex-shrink: 0; }
-        .avatar-bot-img { width: 36px; height: 36px; border-radius: 4px; object-fit: cover; flex-shrink: 0; border: 1px solid #2ecc71; }
-        .msg-content { flex: 1; }
-        .msg-meta { display: flex; align-items: baseline; gap: 8px; margin-bottom: 4px; }
-        .msg-author { font-weight: 700; color: #ffffff; font-size: 14px; }
-        .msg-time { font-size: 11px; color: #abacad; }
-        .msg-text { font-size: 14px; line-height: 1.45; color: #d1d2d3; white-space: pre-wrap; word-break: break-word; }
-        .mention-tag { background-color: rgba(236, 178, 46, 0.2); color: #ecb22e; padding: 2px 4px; border-radius: 3px; font-weight: 600; }
-        .replies-divider { display: flex; align-items: center; margin: 10px 0; color: #abacad; font-size: 12px; }
-        .replies-divider::before, .replies-divider::after { content: ''; flex: 1; border-bottom: 1px solid #2c3136; }
-        .replies-divider span { padding: 0 10px; }
-        .drawer-footer { padding: 16px; border-top: 1px solid #2c3136; background-color: #222529; }
-        .mock-input { background-color: #1a1d21; border: 1px solid #565856; border-radius: 6px; padding: 10px 14px; font-size: 13px; color: #868686; }
-
-        /* Notificación Toast */
-        #toast { visibility: hidden; min-width: 260px; background-color: #333; color: #fff; text-align: center; border-radius: 4px; padding: 12px; position: fixed; z-index: 2000; left: 50%; bottom: 30px; transform: translateX(-50%); font-size: 14px; box-shadow: 0 4px 12px rgba(0,0,0,0.25); }
-        #toast.show { visibility: visible; animation: fadein 0.4s, fadeout 0.4s 2.6s; }
-        @keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
-        @keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: #090d16; }
+        ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 9999px; }
+        ::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
+        .tabular-nums { font-variant-numeric: tabular-nums; }
+        .glass-panel { background: rgba(15, 23, 42, 0.75); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
     </style>
 </head>
-<body>
-    <div class="header">
-        <img src="/static/logo.png" alt="PayGuard Bot Logo">
-        <h1>PayGuard Admin - Plataforma Enterprise Multiagente</h1>
-    </div>
-    
-    <!-- 1. ESTADO DE LA PLATAFORMA Y MÉTRICAS SECOPS -->
-    <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 20px; margin-bottom: 20px;">
-        <div class="card" style="margin-bottom: 0; text-align: center; border-bottom: 4px solid #2ecc71;">
-            <h3 style="margin-top: 0; color: #7f8c8d; font-size: 13px; text-transform: uppercase;">Estado del Motor</h3>
-            <p style="font-size: 16px; font-weight: bold; margin: 10px 0;"><span class="status-badge">{{ bot_status }}</span></p>
-            <p style="font-size: 13px; color: #555;">Agentes Operativos: <strong>{{ agentes_count }}</strong></p>
+<body class="h-full flex bg-[#090d16] text-slate-200 font-sans text-sm overflow-hidden">
+
+    <!-- ========================================================================= -->
+    <!-- BARRA LATERAL IZQUIERDA (SIDEBAR DE HERRAMIENTAS)                        -->
+    <!-- ========================================================================= -->
+    <aside class="w-64 bg-[#0d1322] border-r border-surface-border flex flex-col justify-between shrink-0 select-none z-30">
+        <div class="flex-1 flex flex-col min-h-0">
+            <!-- Header Logo -->
+            <div class="h-16 flex items-center gap-3 px-5 border-b border-surface-border shrink-0">
+                <div class="relative shrink-0">
+                    <img src="/static/logo.png" alt="PayGuard Logo" class="w-8 h-8 rounded-lg object-cover ring-1 ring-white/20 bg-slate-800" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220%22 width=%2232%22 height=%2232%22 fill=%22%2310b981%22><rect width=%2232%22 height=%2232%22 rx=%228%22 fill=%22%23064e3b%22/><text x=%2250%25%22 y=%2255%25%22 dominant-baseline=%22middle%22 text-anchor=%22middle%22 font-size=%2214%22 fill=%22white%22 font-weight=%22bold%22>PG</text></svg>'">
+                    <span class="absolute -bottom-0.5 -right-0.5 w-2 h-2 bg-emerald-500 rounded-full ring-2 ring-[#0d1322]"></span>
+                </div>
+                <div class="overflow-hidden">
+                    <div class="flex items-center gap-1.5">
+                        <span class="font-semibold text-slate-100 tracking-tight text-sm">PayGuard</span>
+                        <span class="text-[9px] font-mono uppercase px-1 py-0.2 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">SecOps</span>
+                    </div>
+                    <p class="text-[10px] text-slate-400 truncate">Enterprise Admin</p>
+                </div>
+            </div>
+
+            <!-- Navegación de Herramientas -->
+            <nav class="p-3 space-y-1.5 overflow-y-auto">
+                <button onclick="cambiarSeccion('seccion-dashboard')" id="btn-seccion-dashboard"
+                    class="tab-btn w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-xs font-medium transition bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    <i data-lucide="layout-dashboard" class="w-4 h-4"></i>
+                    <span>Dashboard & Métricas</span>
+                </button>
+                <button onclick="cambiarSeccion('seccion-documentos')" id="btn-seccion-documentos"
+                    class="tab-btn w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-xs font-medium transition text-slate-400 hover:text-slate-100 hover:bg-slate-800/60">
+                    <i data-lucide="book-open" class="w-4 h-4"></i>
+                    <span>Gestor Documental (RAG)</span>
+                </button>
+                <button onclick="cambiarSeccion('seccion-agentes')" id="btn-seccion-agentes"
+                    class="tab-btn w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-xs font-medium transition text-slate-400 hover:text-slate-100 hover:bg-slate-800/60">
+                    <i data-lucide="bot" class="w-4 h-4"></i>
+                    <span>Orquestador de Agentes</span>
+                </button>
+                <button onclick="cambiarSeccion('seccion-historial')" id="btn-seccion-historial"
+                    class="tab-btn w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-xs font-medium transition text-slate-400 hover:text-slate-100 hover:bg-slate-800/60">
+                    <i data-lucide="message-square-code" class="w-4 h-4"></i>
+                    <span>Auditoría & Incidentes</span>
+                </button>
+                <button onclick="cambiarSeccion('seccion-secretos'); cargarSecretos()" id="btn-seccion-secretos"
+                    class="tab-btn w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-xs font-medium transition text-slate-400 hover:text-slate-100 hover:bg-slate-800/60">
+                    <i data-lucide="key" class="w-4 h-4"></i>
+                    <span>Gestión de Secretos</span>
+                </button>
+            </nav>
         </div>
+
+        <!-- SELECTOR DE SQUAD (BOT) INFERIOR -->
+        <div class="mt-auto border-t border-slate-800 bg-[#0a0f16] p-4 shrink-0">
+            <label class="text-[10px] font-semibold text-slate-500 uppercase tracking-wider mb-2 block">Squad / Alcance</label>
+            <div class="relative">
+                <select id="selectorSquadGlobal" onchange="cambiarContextoGlobal(this)" class="w-full bg-slate-900 border border-slate-700 text-slate-200 text-xs rounded-lg pl-3 pr-8 py-2.5 appearance-none focus:outline-none focus:border-emerald-500 cursor-pointer font-medium hover:bg-slate-800 transition shadow-sm">
+                    <option value="todos" data-area="Global">🏢 Todos los Squads</option>
+                    {% for ag in agentes %}
+                    <option value="{{ ag.id }}" data-area="{{ ag.area }}">⚡ {{ ag.nombre }} ({{ ag.area }})</option>
+                    {% endfor %}
+                </select>
+                <i data-lucide="chevrons-up-down" class="w-3.5 h-3.5 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none"></i>
+            </div>
+            
+            <div class="flex items-center justify-between text-[10px] mt-4 pt-4 border-t border-slate-800/50">
+                <span class="text-slate-500 flex items-center gap-1.5"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Socket</span>
+                <span class="font-mono text-emerald-400">Conectado</span>
+            </div>
+        </div>
+    </aside>
+
+    <!-- ========================================================================= -->
+    <!-- ÁREA DE CONTENIDO PRINCIPAL                                               -->
+    <!-- ========================================================================= -->
+    <div class="flex-1 flex flex-col h-full overflow-hidden">
         
-        <div class="card" style="margin-bottom: 0; text-align: center; border-bottom: 4px solid #3498db;">
-            <h3 style="margin-top: 0; color: #7f8c8d; font-size: 13px; text-transform: uppercase;">Incidentes Hoy</h3>
-            <p style="font-size: 32px; font-weight: bold; color: #2c3e50; margin: 10px 0;">{{ incidentes_hoy }}</p>
-            <p style="font-size: 13px; color: #555;">Atendidos en las últimas 24h</p>
-        </div>
-
-        <div class="card" style="margin-bottom: 0; text-align: center; border-bottom: 4px solid #9b59b6;">
-            <h3 style="margin-top: 0; color: #7f8c8d; font-size: 13px; text-transform: uppercase;">Total Histórico</h3>
-            <p style="font-size: 32px; font-weight: bold; color: #2c3e50; margin: 10px 0;">{{ total_incidentes }}</p>
-            <p style="font-size: 13px; color: #555;">Consultas atendidas en Slack</p>
-        </div>
-
-        <div class="card" style="margin-bottom: 0; text-align: center; border-bottom: 4px solid #e67e22;">
-            <h3 style="margin-top: 0; color: #7f8c8d; font-size: 13px; text-transform: uppercase;">Usuarios Ayudados</h3>
-            <p style="font-size: 32px; font-weight: bold; color: #2c3e50; margin: 10px 0;">{{ usuarios_unicos }}</p>
-            <p style="font-size: 13px; color: #555;">Empleados únicos impactados</p>
-        </div>
-    </div>
-
-    <!-- 2. GESTOR DE BASE DE CONOCIMIENTO (RAG) -->
-    <div class="card">
-        <h2>Gestor Documental (Índice RAG en Tiempo Real)</h2>
-        <p style="font-size: 14px; color: #555;">Carga, sustituye o retira directivas. El motor RAG consulta siempre la versión física actual en disco duro.</p>
-        
-        <form id="formDocumento" onsubmit="subirDocumento(event)" style="background-color: #f8f9fa; padding: 15px; border-radius: 6px; border: 1px solid #e9ecef; margin-bottom: 20px;">
-            <div class="form-grid" style="grid-template-columns: 1fr 1fr 1.5fr 1fr; align-items: end;">
-                <div>
-                    <label for="docArea">Área Raíz:</label>
-                    <input type="text" id="docArea" required value="SecOps_Global">
-                </div>
-                <div>
-                    <label for="docEquipo">Equipo (Subcarpeta):</label>
-                    <input type="text" id="docEquipo" required placeholder="Ej: Access o InfoSec">
-                </div>
-                <div>
-                    <label for="docFile">Archivo Markdown (.md):</label>
-                    <input type="file" id="docFile" accept=".md,.txt" required style="background: white;">
-                </div>
-                <div>
-                    <button type="submit" class="btn-primary" style="width: 100%;">Subir Archivo</button>
-                </div>
-            </div>
-        </form>
-
-        <table>
-            <thead>
-                <tr>
-                    <th>Documento</th>
-                    <th>Área</th>
-                    <th>Equipo</th>
-                    <th>Tamaño</th>
-                    <th>Última Modificación</th>
-                    <th>Acciones</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for doc in documentos %}
-                <tr>
-                    <td><strong>{{ doc.archivo }}</strong></td>
-                    <td><span class="tag-area">{{ doc.area }}</span></td>
-                    <td><span class="tag-channel">{{ doc.equipo }}</span></td>
-                    <td>{{ doc.tamano }} KB</td>
-                    <td class="time-cell">{{ doc.modificacion }}</td>
-                    <td>
-                        <button class="btn-action btn-replace" onclick="abrirModalReemplazo('{{ doc.area }}', '{{ doc.equipo }}', '{{ doc.archivo }}')">🔄 Reemplazar</button>
-                        <button class="btn-action btn-delete" onclick="borrarDocumento('{{ doc.area }}', '{{ doc.equipo }}', '{{ doc.archivo }}')">🗑️ Eliminar</button>
-                    </td>
-                </tr>
-                {% else %}
-                <tr>
-                    <td colspan="6" style="text-align: center; color: #888; padding: 20px;">No hay documentos registrados en la base de conocimiento.</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-
-    <!-- 3. CONFIGURAR NUEVO AGENTE -->
-    <div class="card">
-        <h2>Configurar y Desplegar Nuevo Agente</h2>
-        <form id="formAgente" onsubmit="registrarAgente(event)">
-            <div class="form-grid">
-                <div>
-                    <label for="nombre">Nombre del Agente:</label>
-                    <input type="text" id="nombre" required placeholder="Ej: InfoSec-bot o IT-Helpdesk">
-                </div>
-                <div>
-                    <label for="area">Área Organizacional:</label>
-                    <input type="text" id="area" required value="SecOps_Global" placeholder="Debe coincidir con el Área Raíz">
-                </div>
+        <!-- Header Superior Fijo (Simplificado) -->
+        <header class="h-16 border-b border-surface-border glass-panel px-8 flex items-center justify-between shrink-0">
+            <div>
+                <h2 id="topBarTitulo" class="text-base font-semibold text-white tracking-tight">Dashboard & Métricas</h2>
+                <p id="topBarSubtitulo" class="text-[11px] text-slate-400">Resumen operativo del clúster SecOps en tiempo real</p>
             </div>
 
-            <div class="form-group">
-                <label for="canal">Canal de Slack Asignado (ID):</label>
-                <input type="text" id="canal" required value="{{ default_channel }}">
+            <div class="flex items-center gap-4">
+                <div class="flex items-center gap-3">
+                    <span class="text-xs text-slate-400 font-medium">Contexto Actual:</span>
+                    <span id="lblContextoSuperior" class="px-2.5 py-1 rounded-md bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 text-xs font-mono font-semibold shadow-sm">Global</span>
+                </div>
+                <div class="flex items-center gap-2 px-2.5 py-1 rounded-full bg-slate-900 border border-surface-border text-xs text-slate-300 font-mono">
+                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                    <span>{{ bot_status }}</span>
+                </div>
             </div>
+        </header>
 
-            <div class="form-group">
-                <label for="descripcion">Descripción del Alcance / Rol:</label>
-                <input type="text" id="descripcion" required placeholder="Ej: Triage de incidentes y derivación de tickets">
-            </div>
+        <!-- Contenedor con Scroll para las Vistas -->
+        <main class="flex-1 overflow-y-auto p-8 space-y-8">
 
-            <div class="form-group">
-                <label for="prompt">System Prompt (Instrucciones Maestras del Agente):</label>
-                <textarea id="prompt" required placeholder="Define el rol exacto, reglas, restricciones y tono de comunicación..."></textarea>
-            </div>
+            <!-- 1. VISTA: DASHBOARD & MÉTRICAS -->
+            <div id="seccion-dashboard" class="vista-panel space-y-6">
+                <!-- Tarjetas KPI -->
+                <section aria-label="Métricas Principales" class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                    <div class="bg-surface-card border border-surface-border rounded-xl p-5 relative overflow-hidden shadow-sm">
+                        <div class="absolute top-0 left-0 right-0 h-[2px] bg-emerald-500"></div>
+                        <div class="flex items-center justify-between text-slate-400 mb-3"><span class="text-xs font-medium uppercase tracking-wider">Estado Motor</span><i data-lucide="activity" class="w-4 h-4 text-emerald-400"></i></div>
+                        <div class="flex items-baseline gap-2"><span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-semibold bg-emerald-500/10 text-emerald-300 border border-emerald-500/20"><span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>{{ bot_status }}</span></div>
+                        <p class="text-xs text-slate-400 mt-3 pt-3 border-t border-white/5 flex items-center justify-between"><span>Agentes Operativos</span><strong class="font-mono text-slate-200">{{ agentes_count }}</strong></p>
+                    </div>
+                    <div class="bg-surface-card border border-surface-border rounded-xl p-5 relative overflow-hidden shadow-sm">
+                        <div class="absolute top-0 left-0 right-0 h-[2px] bg-sky-500"></div>
+                        <div class="flex items-center justify-between text-slate-400 mb-3"><span class="text-xs font-medium uppercase tracking-wider">Incidentes Hoy</span><i data-lucide="zap" class="w-4 h-4 text-sky-400"></i></div>
+                        <div id="metricHoy" class="text-3xl font-bold font-mono tracking-tight text-white tabular-nums">{{ incidentes_hoy }}</div>
+                        <p class="text-xs text-slate-400 mt-3 pt-3 border-t border-white/5">Atendidos en las últimas 24 horas</p>
+                    </div>
+                    <div class="bg-surface-card border border-surface-border rounded-xl p-5 relative overflow-hidden shadow-sm">
+                        <div class="absolute top-0 left-0 right-0 h-[2px] bg-purple-500"></div>
+                        <div class="flex items-center justify-between text-slate-400 mb-3"><span class="text-xs font-medium uppercase tracking-wider">Total Histórico</span><i data-lucide="layers" class="w-4 h-4 text-purple-400"></i></div>
+                        <div id="metricTotal" class="text-3xl font-bold font-mono tracking-tight text-white tabular-nums">{{ total_incidentes }}</div>
+                        <p class="text-xs text-slate-400 mt-3 pt-3 border-t border-white/5">Consultas atendidas en Slack</p>
+                    </div>
+                    <div class="bg-surface-card border border-surface-border rounded-xl p-5 relative overflow-hidden shadow-sm">
+                        <div class="absolute top-0 left-0 right-0 h-[2px] bg-amber-500"></div>
+                        <div class="flex items-center justify-between text-slate-400 mb-3"><span class="text-xs font-medium uppercase tracking-wider">Usuarios Ayudados</span><i data-lucide="users" class="w-4 h-4 text-amber-400"></i></div>
+                        <div id="metricUsuarios" class="text-3xl font-bold font-mono tracking-tight text-white tabular-nums">{{ usuarios_unicos }}</div>
+                        <p class="text-xs text-slate-400 mt-3 pt-3 border-t border-white/5">Empleados únicos protegidos</p>
+                    </div>
+                </section>
 
-            <button type="submit" class="btn-primary">Desplegar Agente</button>
-        </form>
-    </div>
-
-    <!-- 4. TABLA DE AGENTES MULTIÁREA -->
-    <div class="card">
-        <h2>Agentes Registrados en la Plataforma</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>ID</th>
-                    <th>Agente</th>
-                    <th>Área</th>
-                    <th>Canal Slack</th>
-                    <th>Estado</th>
-                    <th>Acciones</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for agente in agentes %}
-                <tr>
-                    <td>{{ agente.id }}</td>
-                    <td>
-                        <strong>{{ agente.nombre }}</strong><br>
-                        <small style="color: #666;">{{ agente.descripcion }}</small>
-                    </td>
-                    <td><span class="tag-area">{{ agente.area or 'SecOps_Global' }}</span></td>
-                    <td><span class="tag-channel">{{ agente.canal_slack or 'Global' }}</span></td>
-                    <td>
-                        {% if agente.activo %}
-                            <span class="status-badge-agent" style="background-color: #27ae60;">Activo</span>
-                        {% else %}
-                            <span class="status-badge-agent" style="background-color: #e74c3c;">Inactivo</span>
-                        {% endif %}
-                    </td>
-                    <td>
-                        {% if agente.activo %}
-                            <button class="btn-action btn-deactivate" onclick="toggleEstadoAgente({{ agente.id }})">Pausar</button>
-                        {% else %}
-                            <button class="btn-action btn-activate" onclick="toggleEstadoAgente({{ agente.id }})">Activar</button>
-                        {% endif %}
-                    </td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
-    </div>
-
-    <!-- 5. HISTORIAL DE INCIDENTES Y CONVERSACIONES -->
-    <div class="card">
-        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
-            <h2 style="margin: 0;">Historial de Incidentes y Conversaciones</h2>
-            <input type="search" id="busquedaHistorial" placeholder="🔍 Buscar por usuario, fecha o mensaje..." style="width: 300px;">
-        </div>
-        <table>
-            <thead>
-                <tr>
-                    <th>Fecha / Hora</th>
-                    <th>Usuario Slack</th>
-                    <th>Consulta Inicial</th>
-                    <th>Acción</th>
-                </tr>
-            </thead>
-            <tbody id="historialTbody">
-                {% for item in interacciones %}
-                <tr class="fila-historial">
-                    <td class="time-cell">
-                        <strong>{{ item.hora }}</strong><br>
-                        <small>{{ item.fecha }}</small>
-                    </td>
-                    <td><span class="user-tag">👤 {{ item.remitente }}</span></td>
-                    <td>
-                        <strong>{{ item.contenido }}</strong>
-                        <!-- AQUÍ SE RENDERIZA EL TAG SI HUBO CREACIÓN DE TICKET EN JIRA -->
-                        {% if item.tiene_ticket %}
-                        <div style="margin-top: 6px;">
-                            <span style="background-color: #0052cc; color: white; padding: 3px 8px; border-radius: 12px; font-size: 11px; font-weight: bold; box-shadow: 0 2px 4px rgba(0,82,204,0.2);">
-                                🎫 Escalado a Jira
-                            </span>
+                <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                    <!-- Gráfica 1: Histograma 7 días -->
+                    <div class="lg:col-span-2 bg-surface-card border border-surface-border rounded-xl p-5 shadow-sm flex flex-col">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-sm font-semibold text-white">Ejecuciones por Día</h3>
+                            <span class="text-[10px] text-slate-400 font-mono">Últimos 7 días activos</span>
                         </div>
-                        {% endif %}
-                    </td>
-                    <td>
-                        <button class="btn-hilo" onclick="abrirHiloSlack('{{ item.thread_ts }}')">
-                            💬 Ver interacción
+                        <div class="flex-1 relative min-h-[220px]">
+                            <canvas id="chartEvolucion"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Gráfica 2: Tasa de Éxito / Resolución -->
+                    <div class="bg-surface-card border border-surface-border rounded-xl p-5 shadow-sm flex flex-col">
+                        <div class="flex items-center justify-between mb-4">
+                            <h3 class="text-sm font-semibold text-white">Tasa de Éxito / Resolución</h3>
+                            <i data-lucide="target" class="w-4 h-4 text-slate-400"></i>
+                        </div>
+                        <div class="flex-1 relative flex items-center justify-center min-h-[160px]">
+                            <canvas id="chartResolucion"></canvas>
+                        </div>
+                        <div id="metricExito" class="mt-4 text-center">
+                            <span class="text-2xl font-bold text-emerald-400 tabular-nums">0%</span>
+                            <p class="text-[10px] text-slate-400 uppercase tracking-wider mt-1">Resueltos sin ticket Jira</p>
+                        </div>
+                    </div>
+                </section>
+            </div>
+
+            <!-- 2. VISTA: GESTOR DOCUMENTAL (RAG) -->
+            <div id="seccion-documentos" class="vista-panel hidden space-y-6">
+                <section class="bg-surface-card border border-surface-border rounded-xl shadow-sm flex flex-col">
+                    <div class="p-6 border-b border-surface-border flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <i data-lucide="book-open" class="w-5 h-5 text-emerald-400"></i>
+                                <h2 class="text-base font-semibold text-white tracking-tight">Gestor Documental (RAG Vectorial)</h2>
+                            </div>
+                            <p class="text-xs text-slate-400 mt-1">Carga, sustituye o purga directivas de seguridad. El motor RAG consulta siempre el estado físico en disco.</p>
+                        </div>
+                        <span class="inline-flex items-center gap-1.5 text-xs text-slate-400 bg-slate-900 border border-surface-border px-3 py-1.5 rounded-lg w-fit shrink-0">
+                            <i data-lucide="cpu" class="w-3.5 h-3.5 text-emerald-400"></i>
+                            Indexación Automática
+                        </span>
+                    </div>
+
+                    <div class="p-6 bg-slate-900/60 border-b border-surface-border">
+                        <form id="formDocumento" onsubmit="subirDocumento(event)" class="grid grid-cols-1 md:grid-cols-12 gap-4 items-end">
+                            <div class="md:col-span-3">
+                                <label for="docArea" class="block text-xs font-medium text-slate-300 mb-1.5">Área Raíz</label>
+                                <input type="text" id="docArea" required value="SecOps_Global" class="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-slate-200 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition">
+                            </div>
+                            <div class="md:col-span-3">
+                                <label for="docEquipo" class="block text-xs font-medium text-slate-300 mb-1.5">Equipo (Subcarpeta)</label>
+                                <input type="text" id="docEquipo" required placeholder="Ej: Access, InfoSec" class="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-slate-200 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition">
+                            </div>
+                            <div class="md:col-span-4">
+                                <label for="docFile" class="block text-xs font-medium text-slate-300 mb-1.5">Archivo Markdown (.md, .txt)</label>
+                                <input type="file" id="docFile" accept=".md,.txt" required class="block w-full text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-medium file:bg-slate-800 file:text-slate-200 hover:file:bg-slate-700 cursor-pointer bg-slate-950 border border-slate-700/80 rounded-lg p-1">
+                            </div>
+                            <div class="md:col-span-2">
+                                <button type="submit" id="btnSubirDoc" class="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-4 py-2 rounded-lg text-xs transition shadow-sm">
+                                    <i data-lucide="upload-cloud" class="w-4 h-4"></i> Indexar
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <!-- Tabla Ajustada sin Scroll Horizontal innecesario -->
+                    <div class="w-full">
+                        <table class="w-full text-left text-xs table-fixed">
+                            <thead class="bg-slate-900/40 text-slate-400 uppercase tracking-wider font-mono text-[11px] border-b border-surface-border">
+                                <tr>
+                                    <th class="py-3 px-6 w-1/3">Documento</th>
+                                    <th class="py-3 px-4 w-1/6">Área / Equipo</th>
+                                    <th class="py-3 px-4 w-1/6">Tamaño</th>
+                                    <th class="py-3 px-4 w-1/6">Modificación</th>
+                                    <th class="py-3 px-6 w-1/6 text-right">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-surface-border">
+                                {% for doc in documentos %}
+                                <tr class="hover:bg-slate-800/40 transition-colors">
+                                    <td class="py-3.5 px-6 font-medium text-slate-100 truncate pr-4">
+                                        <div class="flex items-center gap-2">
+                                            <i data-lucide="file-text" class="w-4 h-4 text-slate-400 shrink-0"></i>
+                                            <span class="truncate" title="{{ doc.archivo }}">{{ doc.archivo }}</span>
+                                        </div>
+                                    </td>
+                                    <td class="py-3.5 px-4">
+                                        <div class="flex flex-col gap-1 items-start">
+                                            <span class="px-2 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 font-medium text-[10px] truncate max-w-full" title="{{ doc.area }}">{{ doc.area }}</span>
+                                            <span class="px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20 font-mono text-[10px] truncate max-w-full" title="#{{ doc.equipo }}">#{{ doc.equipo }}</span>
+                                        </div>
+                                    </td>
+                                    <td class="py-3.5 px-4 font-mono text-slate-400 whitespace-nowrap">{{ doc.tamano }} KB</td>
+                                    <td class="py-3.5 px-4 font-mono text-slate-400 text-[11px]">{{ doc.modificacion }}</td>
+                                    <td class="py-3.5 px-6 text-right whitespace-nowrap">
+                                        <div class="flex justify-end gap-1.5">
+                                            <button onclick="abrirModalReemplazo('{{ doc.area }}', '{{ doc.equipo }}', '{{ doc.archivo }}')" class="p-1.5 rounded-md bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition" title="Reemplazar">
+                                                <i data-lucide="replace" class="w-4 h-4"></i>
+                                            </button>
+                                            <button onclick="borrarDocumento('{{ doc.area }}', '{{ doc.equipo }}', '{{ doc.archivo }}')" class="p-1.5 rounded-md bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/20 transition" title="Eliminar">
+                                                <i data-lucide="trash-2" class="w-4 h-4"></i>
+                                            </button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr>
+                                    <td colspan="5" class="py-12 text-center text-slate-500">
+                                        <i data-lucide="inbox" class="w-8 h-8 mx-auto mb-2 text-slate-600"></i>
+                                        <p>No hay documentos registrados en la base vectorial.</p>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+
+            <!-- 3. VISTA: ORQUESTADOR DE AGENTES (Full Width + Sidebar) -->
+            <div id="seccion-agentes" class="vista-panel hidden space-y-6 relative overflow-hidden">
+                
+                <!-- Tabla Principal a Ancho Completo -->
+                <section class="bg-surface-card border border-surface-border rounded-xl shadow-sm flex flex-col min-h-[500px]">
+                    <div class="p-6 border-b border-surface-border flex items-center justify-between">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <i data-lucide="shield-check" class="w-5 h-5 text-emerald-400"></i>
+                                <h2 class="text-base font-semibold text-white tracking-tight">Agentes Registrados</h2>
+                            </div>
+                            <p class="text-xs text-slate-400 mt-1">Gestión del clúster de agentes y sus configuraciones.</p>
+                        </div>
+                        <button onclick="abrirDrawerAgente()" class="flex items-center gap-2 bg-slate-100 hover:bg-white text-slate-950 font-semibold px-4 py-2 rounded-lg text-xs transition shadow-sm">
+                            <i data-lucide="plus" class="w-4 h-4"></i>
+                            Nuevo Agente
                         </button>
-                    </td>
-                </tr>
-                {% else %}
-                <tr class="empty-msg">
-                    <td colspan="4" style="text-align: center; color: #888; padding: 20px;">No hay conversaciones registradas aún.</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+                    </div>
+
+                    <div class="w-full">
+                        <table class="w-full text-left text-xs table-fixed">
+                            <thead class="bg-slate-900/40 text-slate-400 uppercase tracking-wider font-mono text-[11px] border-b border-surface-border">
+                                <tr>
+                                    <th class="py-3 px-6 w-12">ID</th>
+                                    <th class="py-3 px-4 w-1/3">Nombre / Rol</th>
+                                    <th class="py-3 px-4 w-1/4">Área / Canal</th>
+                                    <th class="py-3 px-4 w-24">Estado</th>
+                                    <th class="py-3 px-6 w-24 text-right">Acción</th>
+                                </tr>
+                            </thead>
+                            <tbody class="divide-y divide-surface-border">
+                                {% for agente in agentes %}
+                                <tr class="hover:bg-slate-800/30 transition-colors">
+                                    <td class="py-4 px-6 font-mono text-slate-400">#{{ agente.id }}</td>
+                                    <td class="py-4 px-4 pr-6">
+                                        <div class="font-medium text-slate-100 mb-1 truncate" title="{{ agente.nombre }}">{{ agente.nombre }}</div>
+                                        <div class="text-[11px] text-slate-400 line-clamp-2 leading-relaxed" title="{{ agente.descripcion }}">{{ agente.descripcion }}</div>
+                                    </td>
+                                    <td class="py-4 px-4">
+                                        <div class="flex flex-col gap-1.5 items-start">
+                                            <span class="px-2 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 text-[10px] font-medium">{{ agente.area or 'SecOps_Global' }}</span>
+                                            <span class="font-mono text-slate-400 text-[11px] bg-slate-900 px-2 py-0.5 rounded border border-slate-800 truncate max-w-full" title="#{{ agente.canal_slack or 'Global' }}">#{{ agente.canal_slack or 'Global' }}</span>
+                                        </div>
+                                    </td>
+                                    <td class="py-4 px-4">
+                                        {% if agente.activo %}
+                                        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                            <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span> Activo
+                                        </span>
+                                        {% else %}
+                                        <span class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-medium bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                                            <span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span> Pausado
+                                        </span>
+                                        {% endif %}
+                                    </td>
+                                    <td class="py-4 px-6 text-right">
+                                        <button onclick="toggleEstadoAgente({{ agente.id }})" class="px-3 py-1.5 rounded-lg font-medium text-xs transition {% if agente.activo %}bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/20{% else %}bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/20{% endif %}">
+                                            {{ 'Pausar' if agente.activo else 'Activar' }}
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+
+                    <!-- Tabla de Agentes Registrados -->
+                    <section class="lg:col-span-7 bg-surface-card border border-surface-border rounded-xl p-6 shadow-sm flex flex-col justify-between">
+                        <div>
+                            <div class="flex items-center justify-between mb-4">
+                                <div class="flex items-center gap-2">
+                                    <i data-lucide="shield-check" class="w-5 h-5 text-emerald-400"></i>
+                                    <h2 class="text-base font-semibold text-white tracking-tight">Agentes Registrados</h2>
+                                </div>
+                                <span class="text-xs font-mono text-slate-400">Activos en clúster</span>
+                            </div>
+
+                            <div class="overflow-x-auto">
+                                <table class="w-full text-left text-xs">
+                                    <thead class="bg-slate-900/40 text-slate-400 uppercase tracking-wider font-mono text-[11px] border-b border-surface-border">
+                                        <tr>
+                                            <th class="py-2.5 px-3">ID</th>
+                                            <th class="py-2.5 px-3">Agente</th>
+                                            <th class="py-2.5 px-3">Área / Canal</th>
+                                            <th class="py-2.5 px-3">Estado</th>
+                                            <th class="py-2.5 px-3 text-right">Acción</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody class="divide-y divide-surface-border">
+                                        {% for agente in agentes %}
+                                        <tr class="hover:bg-slate-800/30 transition-colors">
+                                            <td class="py-3 px-3 font-mono text-slate-400">#{{ agente.id }}</td>
+                                            <td class="py-3 px-3">
+                                                <div class="font-medium text-slate-100">{{ agente.nombre }}</div>
+                                                <div class="text-[11px] text-slate-400 truncate max-w-[200px]" title="{{ agente.descripcion }}">{{ agente.descripcion }}</div>
+                                            </td>
+                                            <td class="py-3 px-3 space-y-1">
+                                                <div><span class="px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 text-[10px]">{{ agente.area or 'SecOps_Global' }}</span></div>
+                                                <div class="font-mono text-slate-400 text-[11px]">#{{ agente.canal_slack or 'Global' }}</div>
+                                            </td>
+                                            <td class="py-3 px-3">
+                                                {% if agente.activo %}
+                                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                                                    <span class="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
+                                                    Activo
+                                                </span>
+                                                {% else %}
+                                                <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-medium bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                                                    <span class="w-1.5 h-1.5 rounded-full bg-rose-400"></span>
+                                                    Pausado
+                                                </span>
+                                                {% endif %}
+                                            </td>
+                                            <td class="py-3 px-3 text-right whitespace-nowrap">
+                                                {% if agente.activo %}
+                                                <button onclick="toggleEstadoAgente({{ agente.id }})" class="px-2.5 py-1 rounded bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/20 text-xs font-medium transition">
+                                                    Pausar
+                                                </button>
+                                                {% else %}
+                                                <button onclick="toggleEstadoAgente({{ agente.id }})" class="px-2.5 py-1 rounded bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-300 border border-emerald-500/20 text-xs font-medium transition">
+                                                    Activar
+                                                </button>
+                                                {% endif %}
+                                            </td>
+                                        </tr>
+                                        {% endfor %}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            </div>
+
+            <!-- 4. VISTA: HISTORIAL DE AUDITORÍA & INCIDENTES -->
+            <div id="seccion-historial" class="vista-panel hidden space-y-6">
+                <section class="bg-surface-card border border-surface-border rounded-xl overflow-hidden shadow-sm">
+                    <div class="p-6 border-b border-surface-border flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <i data-lucide="message-square-code" class="w-5 h-5 text-emerald-400"></i>
+                                <h2 class="text-base font-semibold text-white tracking-tight">Historial de Incidentes y Conversaciones</h2>
+                            </div>
+                            <p class="text-xs text-slate-400 mt-1">Auditoría completa de interacciones generadas por los usuarios y resolución autónoma.</p>
+                        </div>
+                        
+                        <div class="relative w-full sm:w-80">
+                            <i data-lucide="search" class="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2"></i>
+                            <input type="search" id="busquedaHistorial" placeholder="Filtrar por remitente, fecha o contenido..." class="w-full bg-slate-950 border border-slate-700/80 rounded-lg pl-9 pr-3 py-2 text-xs text-slate-200 placeholder-slate-500 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition">
+                        </div>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs">
+                            <thead class="bg-slate-900/40 text-slate-400 uppercase tracking-wider font-mono text-[11px] border-b border-surface-border">
+                                <tr>
+                                    <th class="py-3 px-6">Timestamp</th>
+                                    <th class="py-3 px-6">Usuario Slack</th>
+                                    <th class="py-3 px-6">Consulta Inicial</th>
+                                    <th class="py-3 px-6 text-right">Traza</th>
+                                </tr>
+                            </thead>
+                            <tbody id="historialTbody" class="divide-y divide-surface-border">
+                                {% for item in interacciones %}
+                                <tr class="fila-historial hover:bg-slate-800/40 transition-colors">
+                                    <td class="py-3.5 px-6 font-mono text-slate-400 whitespace-nowrap">
+                                        <div class="font-medium text-slate-200">{{ item.hora }}</div>
+                                        <div class="text-[11px] text-slate-500">{{ item.fecha }}</div>
+                                    </td>
+                                    <td class="py-3.5 px-6 whitespace-nowrap">
+                                        <span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-slate-800 border border-slate-700 text-slate-300 font-mono text-xs">
+                                            <i data-lucide="user" class="w-3 h-3 text-slate-400"></i>
+                                            {{ item.remitente }}
+                                        </span>
+                                    </td>
+                                    <td class="py-3.5 px-6">
+                                        <p class="text-slate-200 font-medium leading-relaxed max-w-2xl break-words">{{ item.contenido }}</p>
+                                        {% if item.tiene_ticket %}
+                                        <div class="mt-1.5 flex items-center gap-1.5">
+                                            <span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                                                <i data-lucide="ticket" class="w-3 h-3"></i>
+                                                Escalado a Jira Software
+                                            </span>
+                                        </div>
+                                        {% endif %}
+                                    </td>
+                                    <td class="py-3.5 px-6 text-right whitespace-nowrap">
+                                        <button onclick="abrirHiloSlack('{{ item.thread_ts }}')" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/20 font-medium transition active:scale-[0.98]">
+                                            <i data-lucide="message-square" class="w-3.5 h-3.5"></i>
+                                            <span>Ver Hilo</span>
+                                        </button>
+                                    </td>
+                                </tr>
+                                {% else %}
+                                <tr class="empty-msg">
+                                    <td colspan="4" class="py-12 text-center text-slate-500">
+                                        <i data-lucide="message-circle-off" class="w-8 h-8 mx-auto mb-2 text-slate-600"></i>
+                                        <p>No existen conversaciones o incidentes registrados en este período.</p>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+
+            <!-- 5. VISTA: GESTIÓN DE SECRETOS -->
+            <div id="seccion-secretos" class="vista-panel hidden space-y-6">
+                <section class="bg-surface-card border border-surface-border rounded-xl overflow-hidden shadow-sm">
+                    <div class="p-6 border-b border-surface-border flex flex-col md:flex-row md:items-center justify-between gap-4">
+                        <div>
+                            <div class="flex items-center gap-2">
+                                <i data-lucide="key" class="w-5 h-5 text-purple-400"></i>
+                                <h2 class="text-base font-semibold text-white tracking-tight">Secretos e Integraciones</h2>
+                            </div>
+                            <p class="text-xs text-slate-400 mt-1">Tokens cifrados. Solo los agentes del Squad actual (<span id="lblContextoSecretos" class="font-mono text-purple-400 font-semibold">Global</span>) tendrán acceso.</p>
+                        </div>
+                    </div>
+
+                    <div class="p-6 bg-slate-900/60 border-b border-surface-border">
+                        <form id="formSecretos" onsubmit="guardarSecreto(event)" class="grid grid-cols-1 sm:grid-cols-12 gap-4 items-end">
+                            <div class="sm:col-span-4">
+                                <label for="secClave" class="block text-xs font-medium text-slate-300 mb-1.5">Clave / Etiqueta</label>
+                                <input type="text" id="secClave" required placeholder="Ej: plugin.jira.api_token" class="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-slate-200 focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition font-mono">
+                            </div>
+                            <div class="sm:col-span-4">
+                                <label for="secValor" class="block text-xs font-medium text-slate-300 mb-1.5">Valor del Token / Password</label>
+                                <input type="password" id="secValor" required placeholder="Pega el token aquí..." class="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-3 py-2 text-xs text-slate-200 focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition font-mono">
+                            </div>
+                            <div class="sm:col-span-2">
+                                <label for="secArea" class="block text-xs font-medium text-slate-300 mb-1.5">Área (Contexto)</label>
+                                <input type="text" id="secArea" required readonly value="Global" class="w-full bg-slate-900 border border-slate-700/50 rounded-lg px-3 py-2 text-xs text-slate-500 cursor-not-allowed font-mono shadow-inner">
+                            </div>
+                            <div class="sm:col-span-2">
+                                <button type="submit" id="btnGuardarSecreto" class="w-full flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-500 text-white font-medium px-4 py-2.5 rounded-lg text-xs transition shadow-sm active:scale-[0.98]">
+                                    <i data-lucide="save" class="w-4 h-4"></i> Guardar
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-left text-xs">
+                            <thead class="bg-slate-900/40 text-slate-400 uppercase tracking-wider font-mono text-[11px] border-b border-surface-border">
+                                <tr>
+                                    <th class="py-3 px-6">Clave</th>
+                                    <th class="py-3 px-6">Valor (Cifrado)</th>
+                                    <th class="py-3 px-6">Área Asignada</th>
+                                    <th class="py-3 px-6 text-right">Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody id="tablaSecretosTbody" class="divide-y divide-surface-border">
+                                <!-- Llenado dinámicamente -->
+                            </tbody>
+                        </table>
+                    </div>
+                </section>
+            </div>
+
+        </main>
     </div>
 
-    <!-- MODAL REEMPLAZAR DOCUMENTO -->
-    <div class="modal-overlay" id="modalReemplazar">
-        <div class="modal-content">
-            <div class="modal-header">
-                <h3>Reemplazar Archivo de Conocimiento</h3>
-                <button class="modal-close" onclick="cerrarModalReemplazo()">✕</button>
+    <!-- MODAL: REEMPLAZAR DOCUMENTO -->
+    <div id="modalReemplazar" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/60 backdrop-blur-sm p-4">
+        <div class="bg-slate-900 border border-surface-border rounded-xl w-full max-w-md p-6 shadow-2xl animate-in fade-in zoom-in-95 duration-150">
+            <div class="flex items-center justify-between border-b border-surface-border pb-4 mb-4">
+                <div class="flex items-center gap-2">
+                    <i data-lucide="file-up" class="w-5 h-5 text-purple-400"></i>
+                    <h3 class="text-base font-semibold text-white">Reemplazar Documento RAG</h3>
+                </div>
+                <button onclick="cerrarModalReemplazo()" class="text-slate-400 hover:text-slate-200 p-1 rounded-md transition">
+                    <i data-lucide="x" class="w-4 h-4"></i>
+                </button>
             </div>
-            <form onsubmit="ejecutarReemplazo(event)">
-                <p style="font-size: 13px; color: #444;">
-                    Documento actual a sustituir: <strong id="lblArchivoOriginal" style="color: #8e44ad;"></strong>
-                </p>
-                <p style="font-size: 12px; color: #7f8c8d;">
-                    El archivo anterior se eliminará y el nuevo ocupará su lugar en el índice RAG conservando el área y equipo asignados.
+
+            <form onsubmit="ejecutarReemplazo(event)" class="space-y-4">
+                <div class="p-3 bg-slate-950 rounded-lg border border-slate-800 text-xs">
+                    <span class="text-slate-400 block mb-1">Archivo objetivo actual:</span>
+                    <strong id="lblArchivoOriginal" class="text-purple-300 font-mono text-sm break-all"></strong>
+                </div>
+                <p class="text-xs text-slate-400 leading-normal">
+                    El documento existente se eliminará del almacenamiento y el índice vectorial se actualizará conservando el área y equipo asignados.
                 </p>
                 <input type="hidden" id="repArea">
                 <input type="hidden" id="repEquipo">
                 <input type="hidden" id="repArchivoOriginal">
-                <div style="margin: 15px 0;">
-                    <label for="repNuevoFile">Selecciona el nuevo archivo (.md / .txt):</label>
-                    <input type="file" id="repNuevoFile" accept=".md,.txt" required style="margin-top: 5px; background: white;">
+                <div>
+                    <label for="repNuevoFile" class="block text-xs font-medium text-slate-300 mb-1.5">Nuevo Archivo (.md o .txt)</label>
+                    <input type="file" id="repNuevoFile" accept=".md,.txt" required class="block w-full text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-md file:border-0 file:text-xs file:font-medium file:bg-purple-600 file:text-white hover:file:bg-purple-500 cursor-pointer bg-slate-950 border border-slate-700/80 rounded-lg p-1">
                 </div>
-                <div style="text-align: right; margin-top: 20px; display: flex; justify-content: flex-end; gap: 10px;">
-                    <button type="button" class="btn-action" style="background-color: #95a5a6; padding: 8px 16px;" onclick="cerrarModalReemplazo()">Cancelar</button>
-                    <button type="submit" class="btn-action btn-replace" style="padding: 8px 16px;">🔄 Confirmar Reemplazo</button>
+                <div class="flex justify-end gap-2 pt-4 border-t border-surface-border">
+                    <button type="button" onclick="cerrarModalReemplazo()" class="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium transition">
+                        Cancelar
+                    </button>
+                    <button type="submit" id="btnEjecutarReemplazo" class="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-purple-600 hover:bg-purple-500 text-white text-xs font-medium transition shadow-sm">
+                        <i data-lucide="check" class="w-3.5 h-3.5"></i>
+                        <span>Confirmar y Reindexar</span>
+                    </button>
                 </div>
             </form>
         </div>
     </div>
 
-    <!-- DRAWER LATERAL SLACK -->
-    <div class="drawer-overlay" id="drawerOverlay" onclick="cerrarHiloSlack()"></div>
-    <div class="slack-drawer" id="slackDrawer">
-        <div class="drawer-header">
-            <h3>Hilo</h3>
-            <button class="drawer-close" onclick="cerrarHiloSlack()">✕</button>
+    <!-- DRAWER LATERAL: CREAR NUEVO AGENTE -->
+    <div id="drawerAgenteOverlay" onclick="cerrarDrawerAgente()" class="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 hidden transition-opacity"></div>
+    
+    <aside id="drawerAgente" class="fixed top-0 right-0 h-full w-full sm:w-[450px] bg-slate-900 border-l border-surface-border text-slate-200 z-50 flex flex-col shadow-2xl translate-x-full transition-transform duration-300 ease-in-out">
+        <div class="p-5 border-b border-surface-border flex items-center justify-between bg-slate-900 shrink-0">
+            <div class="flex items-center gap-2">
+                <div class="p-1.5 bg-emerald-500/10 rounded-md border border-emerald-500/20">
+                    <i data-lucide="bot" class="w-4 h-4 text-emerald-400"></i>
+                </div>
+                <h3 class="font-semibold text-white text-sm">Desplegar Nuevo Agente</h3>
+            </div>
+            <button onclick="cerrarDrawerAgente()" class="text-slate-400 hover:text-white p-1.5 rounded-md hover:bg-slate-800 transition">
+                <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
         </div>
-        <div class="drawer-body" id="drawerBody"></div>
-        <div class="drawer-footer">
-            <div class="mock-input">Responder al hilo...</div>
+
+        <div class="flex-1 overflow-y-auto p-6">
+            <p class="text-xs text-slate-400 mb-6 leading-relaxed">Configura una nueva entidad de IA. Define su rol y el canal de Slack donde operará de manera autónoma.</p>
+            
+            <form id="formAgente" onsubmit="registrarAgente(event)" class="space-y-5">
+                <div>
+                    <label for="nombre" class="block text-xs font-medium text-slate-300 mb-1.5">Nombre del Agente</label>
+                    <input type="text" id="nombre" required placeholder="Ej: SecOps-Triage" class="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-3 py-2.5 text-xs text-slate-200 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition">
+                </div>
+                
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label for="area" class="block text-xs font-medium text-slate-300 mb-1.5">Área</label>
+                        <input type="text" id="area" required value="SecOps_Global" class="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-3 py-2.5 text-xs text-slate-200 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition">
+                    </div>
+                    <div>
+                        <label for="canal" class="block text-xs font-medium text-slate-300 mb-1.5">Canal Slack (ID)</label>
+                        <input type="text" id="canal" required value="{{ default_channel }}" class="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-3 py-2.5 text-xs text-slate-200 font-mono focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition">
+                    </div>
+                </div>
+
+                <div>
+                    <label for="descripcion" class="block text-xs font-medium text-slate-300 mb-1.5">Rol Funcional</label>
+                    <input type="text" id="descripcion" required placeholder="Ej: Triage de incidentes de red" class="w-full bg-slate-950 border border-slate-700/80 rounded-lg px-3 py-2.5 text-xs text-slate-200 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition">
+                </div>
+
+                <div>
+                    <label for="prompt" class="block text-xs font-medium text-slate-300 mb-1.5 flex justify-between">
+                        <span>System Prompt</span>
+                        <span class="text-[10px] text-slate-500 font-mono">Maestro</span>
+                    </label>
+                    <textarea id="prompt" required placeholder="Instrucciones detalladas de comportamiento..." rows="8" class="w-full bg-slate-950 border border-slate-700/80 rounded-lg p-3 text-xs text-slate-200 font-mono focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 transition resize-y"></textarea>
+                </div>
+            </form>
         </div>
+        
+        <div class="p-5 border-t border-surface-border bg-slate-900 shrink-0">
+            <button type="submit" form="formAgente" id="btnDesplegarAgente" class="w-full flex items-center justify-center gap-2 bg-emerald-600 hover:bg-emerald-500 text-white font-medium px-4 py-2.5 rounded-lg text-xs transition shadow-sm">
+                <i data-lucide="power" class="w-4 h-4"></i>
+                Desplegar Agente
+            </button>
+        </div>
+    </aside>
+
+    <!-- DRAWER LATERAL: VISOR DE HILOS SLACK -->
+    <div id="drawerOverlay" onclick="cerrarHiloSlack()" class="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 hidden transition-opacity"></div>
+    
+    <aside id="slackDrawer" class="fixed top-0 right-0 h-full w-full sm:w-[480px] bg-[#1a1d21] text-slate-200 z-50 flex flex-col shadow-2xl border-l border-slate-800 translate-x-full transition-transform duration-300 ease-in-out">
+        <div class="p-4 border-b border-slate-800 flex items-center justify-between bg-[#151719]">
+            <div class="flex items-center gap-2">
+                <i data-lucide="hash" class="w-4 h-4 text-slate-400"></i>
+                <h3 class="font-semibold text-white text-sm">Hilo de Conversación</h3>
+            </div>
+            <button onclick="cerrarHiloSlack()" class="text-slate-400 hover:text-white p-1 rounded-md transition" title="Cerrar (Esc)">
+                <i data-lucide="x" class="w-4 h-4"></i>
+            </button>
+        </div>
+
+        <div id="drawerBody" class="flex-1 overflow-y-auto p-4 space-y-4">
+            <!-- Cargado vía API -->
+        </div>
+
+        <div class="p-4 border-t border-slate-800 bg-[#151719]">
+            <div class="bg-[#222529] border border-slate-700 rounded-lg p-3 text-xs text-slate-400 cursor-not-allowed select-none flex items-center justify-between">
+                <span>Modo auditoría (Sólo lectura)...</span>
+                <i data-lucide="lock" class="w-3.5 h-3.5 text-slate-500"></i>
+            </div>
+        </div>
+    </aside>
+
+    <!-- NOTIFICACIONES TOAST -->
+    <div id="toast" class="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 hidden items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-medium text-white shadow-xl transition-all duration-200">
+        <span id="toastIcon"></span>
+        <span id="toastMsg">Acción completada con éxito.</span>
     </div>
 
-    <!-- TOAST -->
-    <div id="toast">Acción completada con éxito.</div>
-
+    <!-- SCRIPTS CORE Y GRÁFICAS -->
     <script>
-        function showToast(message, isError = false) {
-            const toast = document.getElementById("toast");
-            toast.textContent = message;
-            toast.style.backgroundColor = isError ? "#e74c3c" : "#27ae60";
-            toast.className = "show";
-            setTimeout(() => { toast.className = toast.className.replace("show", ""); }, 3000);
-        }
+        lucide.createIcons();
 
-        // --- SUBIR DOCUMENTO ---
-        async function subirDocumento(event) {
-            event.preventDefault();
-            const formData = new FormData();
-            formData.append("area", document.getElementById('docArea').value);
-            formData.append("equipo", document.getElementById('docEquipo').value);
-            formData.append("file", document.getElementById('docFile').files[0]);
+        // -------------------------------------------------------------
+        // ESTADO GLOBAL: CONTROLADOR MAESTRO DE LA PLATAFORMA
+        // -------------------------------------------------------------
+        let contextoGlobal = {
+            agenteId: 'todos',
+            area: 'Global',
+            nombre: 'Todos los Squads'
+        };
 
-            const res = await fetch('/api/conocimiento/upload', { method: 'POST', body: formData });
-            if (res.ok) {
-                showToast("Documento subido e indexado");
-                setTimeout(() => window.location.reload(), 1000);
-            } else {
-                showToast("Error al subir el archivo", true);
+        const infoSecciones = {
+            'seccion-dashboard': { titulo: 'Dashboard & Métricas', subtitulo: 'Resumen operativo en tiempo real' },
+            'seccion-documentos': { titulo: 'Gestor Documental (RAG)', subtitulo: 'Indexación física y administración de guías' },
+            'seccion-agentes': { titulo: 'Orquestador Multigrupo', subtitulo: 'Configuración de prompts maestros y canales' },
+            'seccion-historial': { titulo: 'Auditoría & Incidentes', subtitulo: 'Traza completa de solicitudes y respuestas' },
+            'seccion-secretos': { titulo: 'Secretos e Integraciones', subtitulo: 'Almacén seguro de credenciales (AES-256)' }
+        };
+
+        async function cambiarContextoGlobal(selectObj) {
+            const option = selectObj.options[selectObj.selectedIndex];
+            
+            // 1. Actualizar variables de estado
+            contextoGlobal.agenteId = selectObj.value;
+            contextoGlobal.area = option.getAttribute('data-area');
+            contextoGlobal.nombre = option.text.replace('⚡ ', '').replace('🏢 ', '');
+
+            // 2. Actualizar UI visualmente
+            document.getElementById('lblContextoSuperior').innerText = contextoGlobal.area;
+            document.getElementById('lblContextoSecretos').innerText = contextoGlobal.area;
+            document.getElementById('secArea').value = contextoGlobal.area; // Campo bloqueado del form
+
+            // 3. Disparar recargas asíncronas
+            showToast(`Ámbito cambiado a: ${contextoGlobal.nombre}`);
+            await actualizarMonitoreoPorAgente(contextoGlobal.agenteId);
+            
+            if (!document.getElementById('seccion-secretos').classList.contains('hidden')) {
+                cargarSecretos();
             }
         }
 
-        // --- REEMPLAZAR DOCUMENTO ---
-        function abrirModalReemplazo(area, equipo, archivo) {
-            document.getElementById('repArea').value = area;
-            document.getElementById('repEquipo').value = equipo;
-            document.getElementById('repArchivoOriginal').value = archivo;
-            document.getElementById('lblArchivoOriginal').innerText = archivo;
-            document.getElementById('repNuevoFile').value = "";
-            document.getElementById('modalReemplazar').classList.add('active');
+        // -------------------------------------------------------------
+        // UI & NAVEGACIÓN
+        // -------------------------------------------------------------
+        function cambiarSeccion(seccionId) {
+            document.querySelectorAll('.vista-panel').forEach(panel => panel.classList.add('hidden'));
+            const seccion = document.getElementById(seccionId);
+            if (seccion) seccion.classList.remove('hidden');
+
+            const info = infoSecciones[seccionId];
+            if (info) {
+                document.getElementById('topBarTitulo').innerText = info.titulo;
+                document.getElementById('topBarSubtitulo').innerText = info.subtitulo;
+            }
+
+            document.querySelectorAll('.tab-btn').forEach(btn => {
+                btn.className = "tab-btn w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-xs font-medium transition text-slate-400 hover:text-slate-100 hover:bg-slate-800/60";
+            });
+            const btnActivo = document.getElementById('btn-' + seccionId);
+            if (btnActivo) {
+                btnActivo.className = "tab-btn w-full flex items-center gap-3 px-3.5 py-2.5 rounded-lg text-xs font-medium transition bg-emerald-500/10 text-emerald-400 border border-emerald-500/20";
+            }
         }
 
-        function cerrarModalReemplazo() {
-            document.getElementById('modalReemplazar').classList.remove('active');
+        // -------------------------------------------------------------
+        // GRÁFICAS (CHART.JS)
+        // -------------------------------------------------------------
+        let interaccionesCrudas = [
+            {% for item in interacciones %}
+            { fecha: "{{ item.fecha }}", tiene_ticket: {{ 'true' if item.tiene_ticket else 'false' }}, remitente: "{{ item.remitente }}" },
+            {% endfor %}
+        ];
+
+        let chartEv = null;
+        let chartRes = null;
+        Chart.defaults.color = '#94a3b8';
+        Chart.defaults.font.family = "'Inter', sans-serif";
+
+        function renderizarGraficas(datos) {
+            const countPorFecha = {};
+            datos.forEach(d => { countPorFecha[d.fecha] = (countPorFecha[d.fecha] || 0) + 1; });
+            
+            const etiquetasFechas = Object.keys(countPorFecha).sort();
+            const valoresFechas = etiquetasFechas.map(f => countPorFecha[f]);
+
+            if (chartEv) chartEv.destroy();
+            const ctxEv = document.getElementById('chartEvolucion').getContext('2d');
+            chartEv = new Chart(ctxEv, {
+                type: 'bar',
+                data: {
+                    labels: etiquetasFechas,
+                    datasets: [{
+                        label: 'Incidentes',
+                        data: valoresFechas,
+                        backgroundColor: '#3b82f6',
+                        borderRadius: 4,
+                        barPercentage: 0.5
+                    }]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false,
+                    plugins: { legend: { display: false } },
+                    scales: { y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,0.05)' }, border: { display: false } }, x: { grid: { display: false }, border: { display: false } } }
+                }
+            });
+
+            let resueltos = 0, escalados = 0;
+            datos.forEach(d => { if (d.tiene_ticket) escalados++; else resueltos++; });
+            const total = resueltos + escalados;
+            const tasa = total > 0 ? Math.round((resueltos / total) * 100) : 0;
+            document.querySelector('#metricExito span').textContent = `${tasa}%`;
+
+            if (chartRes) chartRes.destroy();
+            const ctxRes = document.getElementById('chartResolucion').getContext('2d');
+            chartRes = new Chart(ctxRes, {
+                type: 'doughnut',
+                data: {
+                    labels: ['Resueltos Autonómicamente', 'Escalados'],
+                    datasets: [{ data: [resueltos, escalados], backgroundColor: ['#10b981', '#64748b'], borderWidth: 0, hoverOffset: 4 }]
+                },
+                options: { responsive: true, maintainAspectRatio: false, cutout: '75%', plugins: { legend: { display: false } } }
+            });
         }
+        renderizarGraficas(interaccionesCrudas);
+
+        async function actualizarMonitoreoPorAgente(agenteId) {
+            try {
+                const res = await fetch(`/api/metricas/agente/${agenteId}`);
+                if (!res.ok) throw new Error();
+                const data = await res.json();
+
+                document.getElementById("metricHoy").textContent = data.incidentes_hoy;
+                document.getElementById("metricTotal").textContent = data.total_historico;
+                document.getElementById("metricUsuarios").textContent = data.usuarios_unicos;
+                renderizarGraficas(data.incidentes);
+
+                const tbody = document.getElementById("historialTbody");
+                if (data.incidentes.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="4" class="py-12 text-center text-slate-500"><i data-lucide="message-circle-off" class="w-8 h-8 mx-auto mb-2 text-slate-600"></i><p>Este bot no registra incidentes.</p></td></tr>`;
+                    lucide.createIcons();
+                    return;
+                }
+                let html = '';
+                data.incidentes.forEach(item => {
+                    html += `
+                        <tr class="fila-historial hover:bg-slate-800/40 transition-colors">
+                            <td class="py-3.5 px-6 font-mono text-slate-400 whitespace-nowrap"><div class="font-medium text-slate-200">${item.hora}</div><div class="text-[11px] text-slate-500">${item.fecha}</div></td>
+                            <td class="py-3.5 px-6 whitespace-nowrap"><span class="inline-flex items-center gap-1.5 px-2 py-1 rounded-md bg-slate-800 border border-slate-700 text-slate-300 font-mono text-xs"><i data-lucide="user" class="w-3 h-3 text-slate-400"></i>${escapeHtml(item.remitente)}</span></td>
+                            <td class="py-3.5 px-6"><p class="text-slate-200 font-medium leading-relaxed max-w-2xl break-words">${escapeHtml(item.contenido)}</p>${item.tiene_ticket ? `<div class="mt-1.5 flex items-center gap-1.5"><span class="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-500/10 text-blue-400 border border-blue-500/20"><i data-lucide="ticket" class="w-3 h-3"></i>Escalado a Jira Software</span></div>` : ''}</td>
+                            <td class="py-3.5 px-6 text-right whitespace-nowrap"><button onclick="abrirHiloSlack('${item.thread_ts}')" class="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-purple-500/10 hover:bg-purple-500/20 text-purple-300 border border-purple-500/20 font-medium transition active:scale-[0.98]"><i data-lucide="message-square" class="w-3.5 h-3.5"></i><span>Ver Hilo</span></button></td>
+                        </tr>
+                    `;
+                });
+                tbody.innerHTML = html;
+                lucide.createIcons();
+            } catch (err) { console.error("Error al obtener estadísticas del agente.", err); }
+        }
+
+        // -------------------------------------------------------------
+        // GESTIÓN DE SECRETOS (Conectada al Contexto Global)
+        // -------------------------------------------------------------
+        async function cargarSecretos() {
+            try {
+                const res = await fetch(`/api/secretos?area=${encodeURIComponent(contextoGlobal.area)}`);
+                const data = await res.json();
+                const tbody = document.getElementById("tablaSecretosTbody");
+                
+                if (data.length === 0) {
+                    tbody.innerHTML = `<tr><td colspan="4" class="py-12 text-center text-slate-500"><i data-lucide="key-round" class="w-8 h-8 mx-auto mb-2 opacity-50"></i><p>El squad '${contextoGlobal.area}' no tiene secretos registrados.</p></td></tr>`;
+                    lucide.createIcons();
+                    return;
+                }
+
+                let html = '';
+                data.forEach(sec => {
+                    html += `
+                        <tr class="hover:bg-slate-800/40 transition-colors">
+                            <td class="py-3.5 px-6 font-mono text-slate-200 font-medium">${sec.clave}</td>
+                            <td class="py-3.5 px-6 font-mono text-slate-500">************************</td>
+                            <td class="py-3.5 px-6"><span class="px-2.5 py-1 rounded bg-slate-800 border border-slate-700 text-slate-300 font-semibold text-[10px]">${sec.area}</span></td>
+                            <td class="py-3.5 px-6 text-right"><button onclick="eliminarSecreto('${sec.clave}')" class="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-md bg-rose-500/10 hover:bg-rose-500/20 text-rose-300 border border-rose-500/20 transition"><i data-lucide="trash-2" class="w-3.5 h-3.5"></i> Borrar</button></td>
+                        </tr>
+                    `;
+                });
+                tbody.innerHTML = html;
+                lucide.createIcons();
+            } catch (error) { console.error("Error al cargar secretos", error); }
+        }
+
+        async function guardarSecreto(event) {
+            event.preventDefault();
+            const btn = document.getElementById("btnGuardarSecreto");
+            btn.innerHTML = `<span class="inline-block animate-spin mr-2">⟳</span>...`;
+            
+            const data = {
+                clave: document.getElementById('secClave').value.trim(),
+                valor: document.getElementById('secValor').value.trim(),
+                area: document.getElementById('secArea').value // Ya viene pre-llenado con contextoGlobal.area
+            };
+
+            try {
+                const res = await fetch('/api/secretos', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+                if (res.ok) {
+                    showToast(`Secreto asignado al squad ${data.area}.`);
+                    document.getElementById('secClave').value = '';
+                    document.getElementById('secValor').value = '';
+                    cargarSecretos();
+                }
+            } catch (err) { showToast("Fallo al guardar.", true); } finally {
+                btn.innerHTML = `<i data-lucide="save" class="w-4 h-4"></i> Guardar`;
+                lucide.createIcons();
+            }
+        }
+
+        async function eliminarSecreto(clave) {
+            if (!confirm(`¿Eliminar secreto '${clave}'?`)) return;
+            try {
+                const res = await fetch(`/api/secretos/${clave}`, { method: 'DELETE' });
+                if (res.ok) { showToast("Secreto eliminado."); cargarSecretos(); }
+            } catch (err) { showToast("Error de red.", true); }
+        }
+
+        // -------------------------------------------------------------
+        // RESTO DE FUNCIONES (RAG, Hilos, Toast)
+        // -------------------------------------------------------------
+        let toastTimeout;
+        function showToast(message, isError = false) {
+            const toast = document.getElementById("toast");
+            const toastMsg = document.getElementById("toastMsg");
+            const toastIcon = document.getElementById("toastIcon");
+            clearTimeout(toastTimeout);
+            toastMsg.textContent = message;
+            toast.className = isError 
+                ? "fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-medium text-white shadow-xl bg-rose-600 border border-rose-500/50"
+                : "fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2.5 rounded-lg text-xs font-medium text-white shadow-xl bg-emerald-600 border border-emerald-500/50";
+            toastIcon.innerHTML = isError ? '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>' : '<svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>';
+            toast.classList.remove("hidden");
+            toastTimeout = setTimeout(() => toast.classList.add("hidden"), 3000);
+        }
+
+        async function subirDocumento(event) {
+            event.preventDefault();
+            const btn = document.getElementById("btnSubirDoc");
+            const originalText = btn.innerHTML;
+            btn.disabled = true; btn.innerHTML = `<span class="inline-block animate-spin mr-2">⟳</span> Indexando...`;
+            try {
+                const formData = new FormData();
+                formData.append("area", document.getElementById('docArea').value.trim());
+                formData.append("equipo", document.getElementById('docEquipo').value.trim());
+                formData.append("file", document.getElementById('docFile').files[0]);
+                const res = await fetch('/api/conocimiento/upload', { method: 'POST', body: formData });
+                if (res.ok) { showToast("Documento subido e indexado."); setTimeout(() => window.location.reload(), 900); } 
+                else { showToast("Fallo en la indexación.", true); btn.disabled = false; btn.innerHTML = originalText; }
+            } catch (err) { showToast("Error de conexión.", true); btn.disabled = false; btn.innerHTML = originalText; }
+        }
+
+        function abrirModalReemplazo(area, equipo, archivo) {
+            document.getElementById('repArea').value = area; document.getElementById('repEquipo').value = equipo; document.getElementById('repArchivoOriginal').value = archivo; document.getElementById('lblArchivoOriginal').innerText = archivo; document.getElementById('repNuevoFile').value = "";
+            document.getElementById('modalReemplazar').classList.remove('hidden'); document.getElementById('modalReemplazar').classList.add('flex');
+        }
+
+        function cerrarModalReemplazo() { document.getElementById('modalReemplazar').classList.add('hidden'); document.getElementById('modalReemplazar').classList.remove('flex'); }
 
         async function ejecutarReemplazo(event) {
             event.preventDefault();
-            const formData = new FormData();
-            formData.append("area", document.getElementById('repArea').value);
-            formData.append("equipo", document.getElementById('repEquipo').value);
-            formData.append("archivo_original", document.getElementById('repArchivoOriginal').value);
-            formData.append("file", document.getElementById('repNuevoFile').files[0]);
-
-            const res = await fetch('/api/conocimiento/replace', { method: 'POST', body: formData });
-            if (res.ok) {
-                cerrarModalReemplazo();
-                showToast("Documento reemplazado e indexado");
-                setTimeout(() => window.location.reload(), 1200);
-            } else {
-                showToast("Error al reemplazar el documento", true);
-            }
+            const btn = document.getElementById("btnEjecutarReemplazo"); btn.disabled = true; btn.innerHTML = `Reemplazando...`;
+            try {
+                const formData = new FormData();
+                formData.append("area", document.getElementById('repArea').value); formData.append("equipo", document.getElementById('repEquipo').value); formData.append("archivo_original", document.getElementById('repArchivoOriginal').value); formData.append("file", document.getElementById('repNuevoFile').files[0]);
+                const res = await fetch('/api/conocimiento/replace', { method: 'POST', body: formData });
+                if (res.ok) { cerrarModalReemplazo(); showToast("Archivo reemplazado."); setTimeout(() => window.location.reload(), 900); } 
+                else { showToast("Error al sustituir.", true); btn.disabled = false; btn.innerHTML = "Confirmar y Reindexar"; }
+            } catch (err) { showToast("Error de red.", true); btn.disabled = false; btn.innerHTML = "Confirmar y Reindexar"; }
         }
 
-        // --- BORRAR DOCUMENTO ---
         async function borrarDocumento(area, equipo, archivo) {
-            if (confirm(`¿Confirmas la eliminación de '${archivo}'?\n\nEl documento se purgará del índice RAG y dejará de estar disponible para los agentes.`)) {
+            if (!confirm(`¿Confirmas la purga de '${archivo}'?`)) return;
+            try {
                 const res = await fetch(`/api/conocimiento/delete?area=${encodeURIComponent(area)}&equipo=${encodeURIComponent(equipo)}&archivo=${encodeURIComponent(archivo)}`, { method: 'DELETE' });
-                if (res.ok) {
-                    showToast("Documento eliminado del servidor");
-                    setTimeout(() => window.location.reload(), 1200);
-                } else {
-                    showToast("Error al eliminar el documento", true);
-                }
-            }
+                if (res.ok) { showToast("Documento purgado."); setTimeout(() => window.location.reload(), 900); } else { showToast("Error al eliminar.", true); }
+            } catch (err) { showToast("Fallo de red.", true); }
         }
 
-        // --- AGENTES ---
         async function registrarAgente(event) {
             event.preventDefault();
-            const data = {
-                nombre: document.getElementById('nombre').value,
-                area: document.getElementById('area').value,
-                canal_slack: document.getElementById('canal').value,
-                descripcion: document.getElementById('descripcion').value,
-                prompt_maestro: document.getElementById('prompt').value
-            };
-            const response = await fetch('/api/agentes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
-            if (response.ok) {
-                showToast("Agente registrado exitosamente");
-                setTimeout(() => window.location.reload(), 1000);
-            } else {
-                showToast("Error al registrar el agente", true);
-            }
+            const btn = document.getElementById("btnDesplegarAgente"); const originalText = btn.innerHTML; btn.disabled = true; btn.innerHTML = `Desplegando...`;
+            const data = { nombre: document.getElementById('nombre').value.trim(), area: document.getElementById('area').value.trim(), canal_slack: document.getElementById('canal').value.trim(), descripcion: document.getElementById('descripcion').value.trim(), prompt_maestro: document.getElementById('prompt').value.trim() };
+            try {
+                const res = await fetch('/api/agentes', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data) });
+                if (res.ok) { showToast("Agente registrado."); setTimeout(() => window.location.reload(), 900); } 
+                else { showToast("Error al registrar.", true); btn.disabled = false; btn.innerHTML = originalText; }
+            } catch (err) { showToast("Error de red.", true); btn.disabled = false; btn.innerHTML = originalText; }
         }
 
-        async function toggleEstadoAgente(id) {
-            const response = await fetch(`/api/agentes/${id}/toggle`, { method: 'PATCH' });
-            if (response.ok) window.location.reload();
-            else showToast("Error al cambiar estado del agente", true);
-        }
+        async function toggleEstadoAgente(id) { try { const res = await fetch(`/api/agentes/${id}/toggle`, { method: 'PATCH' }); if (res.ok) { window.location.reload(); } else { showToast("Error.", true); } } catch (err) { showToast("Error.", true); } }
 
-        // --- VISOR DE HILOS SLACK ---
         async function abrirHiloSlack(threadTs) {
-            const drawer = document.getElementById('slackDrawer');
-            const overlay = document.getElementById('drawerOverlay');
-            const body = document.getElementById('drawerBody');
-
-            body.innerHTML = '<div style="color: #abacad; text-align: center; padding: 20px;">Cargando interacción...</div>';
-            drawer.classList.add('open');
-            overlay.classList.add('active');
-
+            const drawer = document.getElementById('slackDrawer'); const overlay = document.getElementById('drawerOverlay'); const body = document.getElementById('drawerBody');
+            body.innerHTML = `<div class="flex flex-col items-center justify-center py-16 text-slate-400 gap-2"><span class="inline-block animate-spin text-xl">⟳</span><span class="text-xs">Sincronizando...</span></div>`;
+            overlay.classList.remove('hidden'); drawer.classList.remove('translate-x-full');
             try {
                 const res = await fetch(`/api/hilos/${threadTs}`);
                 if (!res.ok) throw new Error();
@@ -458,55 +1001,59 @@
                 let html = '';
                 mensajes.forEach((m, idx) => {
                     const esBot = m.tipo === 'bot';
-                    const avatarHtml = esBot 
-                        ? `<img src="/static/logo.png" class="avatar-bot-img" alt="Bot">` 
-                        : `<div class="avatar-box">${m.remitente.charAt(0) || 'U'}</div>`;
-                        
-                    if (idx === 1) html += `<div class="replies-divider"><span>${mensajes.length - 1} respuesta(s)</span></div>`;
-                    
-                    let cont = m.contenido.replace(/<@([A-Z0-9]+)>/g, '<span class="mention-tag">@$1</span>');
-                    html += `<div class="slack-msg">${avatarHtml}<div class="msg-content"><div class="msg-meta"><span class="msg-author">${m.remitente}</span><span class="msg-time">${m.hora}</span></div><div class="msg-text">${cont}</div></div></div>`;
+                    const avatarHtml = esBot ? `<img src="/static/logo.png" class="w-8 h-8 rounded object-cover ring-1 ring-emerald-500/40 bg-slate-900 shrink-0">` : `<div class="w-8 h-8 rounded bg-amber-600 flex items-center justify-center font-bold text-white text-xs shrink-0">${(m.remitente || 'U').charAt(0).toUpperCase()}</div>`;
+                    if (idx === 1) { html += `<div class="relative flex items-center py-2"><div class="flex-grow border-t border-slate-800"></div><span class="flex-shrink mx-3 text-[10px] font-medium uppercase tracking-wider text-slate-400 bg-[#1a1d21] px-2 py-0.5 rounded border border-slate-800">${mensajes.length - 1} respuestas</span><div class="flex-grow border-t border-slate-800"></div></div>`; }
+                    const cont = escapeHtml(m.contenido).replace(/&lt;@([A-Z0-9]+)&gt;/g, '<span class="bg-amber-400/20 text-amber-300 px-1 py-0.5 rounded font-mono text-xs">@$1</span>');
+                    html += `<div class="flex gap-3 text-xs leading-relaxed group">${avatarHtml}<div class="flex-1 min-w-0"><div class="flex items-baseline gap-2 mb-1"><span class="font-semibold text-slate-100">${escapeHtml(m.remitente)}</span>${esBot ? '<span class="text-[9px] uppercase px-1 py-0.2 rounded bg-slate-800 text-slate-400 border border-slate-700">BOT</span>' : ''}<span class="text-[11px] text-slate-400 font-mono">${escapeHtml(m.hora)}</span></div><div class="text-slate-300 whitespace-pre-wrap break-words">${cont}</div></div></div>`;
                 });
                 body.innerHTML = html;
-            } catch (err) {
-                body.innerHTML = '<div style="color: #e74c3c; padding: 20px;">Error al cargar los mensajes del hilo.</div>';
-            }
+            } catch (err) { body.innerHTML = `<div class="p-4 bg-rose-500/10 border border-rose-500/20 rounded-lg text-rose-300 text-xs">Error de red.</div>`; }
         }
 
-        function cerrarHiloSlack() {
-            document.getElementById('slackDrawer').classList.remove('open');
-            document.getElementById('drawerOverlay').classList.remove('active');
-        }
+        function cerrarHiloSlack() { document.getElementById('slackDrawer').classList.add('translate-x-full'); document.getElementById('drawerOverlay').classList.add('hidden'); }
 
-        // --- FILTRO EN VIVO PARA HISTORIAL ---
+        document.addEventListener('keydown', (e) => { if (e.key === 'Escape') { cerrarHiloSlack(); cerrarModalReemplazo(); } });
+
+        function escapeHtml(str) { return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#039;'); }
+
         document.getElementById('busquedaHistorial').addEventListener('input', function(e) {
             const term = e.target.value.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
             const rows = document.querySelectorAll('#historialTbody .fila-historial');
             let hasVisible = false;
-
             rows.forEach(row => {
                 const text = row.textContent.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
-                if (text.includes(term)) {
-                    row.style.display = '';
-                    hasVisible = true;
-                } else {
-                    row.style.display = 'none';
-                }
+                if (text.includes(term)) { row.style.display = ''; hasVisible = true; } else { row.style.display = 'none'; }
             });
-
             let emptyRow = document.getElementById('noResultsRow');
             if (!hasVisible && rows.length > 0) {
                 if (!emptyRow) {
-                    const tbody = document.getElementById('historialTbody');
-                    emptyRow = document.createElement('tr');
-                    emptyRow.id = 'noResultsRow';
-                    emptyRow.innerHTML = '<td colspan="4" style="text-align: center; color: #888; padding: 20px;">No se encontraron resultados para la búsqueda actual.</td>';
-                    tbody.appendChild(emptyRow);
+                    emptyRow = document.createElement('tr'); emptyRow.id = 'noResultsRow'; emptyRow.innerHTML = '<td colspan="4" class="py-8 text-center text-slate-500 text-xs">No se encontraron resultados.</td>'; document.getElementById('historialTbody').appendChild(emptyRow);
                 }
                 emptyRow.style.display = '';
-            } else if (emptyRow) {
-                emptyRow.style.display = 'none';
-            }
+            } else if (emptyRow) { emptyRow.style.display = 'none'; }
+        });
+
+        // -------------------------------------------------------------
+        // CONTROL DEL DRAWER DE NUEVO AGENTE
+        // -------------------------------------------------------------
+        function abrirDrawerAgente() {
+            document.getElementById('drawerAgenteOverlay').classList.remove('hidden');
+            document.getElementById('drawerAgente').classList.remove('translate-x-full');
+            document.getElementById('area').value = contextoGlobal.area; // Pre-llena con el contexto actual
+        }
+
+        function cerrarDrawerAgente() {
+            document.getElementById('drawerAgenteOverlay').classList.add('hidden');
+            document.getElementById('drawerAgente').classList.add('translate-x-full');
+        }
+
+        // Agregar evento para cerrar con ESC
+        document.addEventListener('keydown', (e) => { 
+            if (e.key === 'Escape') { 
+                cerrarHiloSlack(); 
+                cerrarModalReemplazo(); 
+                cerrarDrawerAgente(); // <-- Agregar esta línea
+            } 
         });
     </script>
 </body>

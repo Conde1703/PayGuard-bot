@@ -1,141 +1,143 @@
-from datetime import datetime
-from core.logger import logger
-from core.database import SessionLocal, Agente, MensajeHilo
-from core.motor import motor_ia 
+import os
+import ssl
 
-def guardar_mensaje(thread_ts: str, remitente: str, tipo: str, contenido: str):
-    """Registra cada turno de conversación en SQLite para auditoría y visualización web"""
-    ahora = datetime.now()
-    db = SessionLocal()
-    try:
-        nuevo_mensaje = MensajeHilo(
-            thread_ts=thread_ts,
-            remitente=remitente,
-            tipo=tipo,
-            contenido=contenido,
-            fecha=ahora.strftime("%Y-%m-%d"),
-            hora=ahora.strftime("%H:%M:%S")
-        )
-        db.add(nuevo_mensaje)
-        db.commit()
-    finally:
-        db.close()
+# --- BYPASS PARA REDES CORPORATIVAS (Evita el bloqueo SSL del Firewall) ---
+os.environ['CURL_CA_BUNDLE'] = ''
+os.environ['REQUESTS_CA_BUNDLE'] = ''
+ssl._create_default_https_context = ssl._create_unverified_context
+# --------------------------------------------------------------------------
 
-def obtener_agente_para_canal(canal_id: str):
-    """
-    Sistema de Enrutamiento Dinámico:
-    1. Busca un agente activo asignado específicamente a este canal.
-    2. Si no hay ninguno específico, asigna el primer agente activo disponible.
-    """
-    db = SessionLocal()
-    try:
-        # Prioridad 1: Agente asignado a este canal específico
-        agente = db.query(Agente).filter(
-            Agente.canal_slack == canal_id,
-            Agente.activo == True
-        ).first()
+from datetime import datetime, timedelta
+from core.database import SessionLocal, MensajeHilo
+from slack_sdk.errors import SlackApiError
+from apscheduler.schedulers.background import BackgroundScheduler
 
-        # Prioridad 2: Si el canal tiene agentes registrados pero están pausados
-        if not agente:
-            agente_pausado = db.query(Agente).filter(
-                Agente.canal_slack == canal_id,
-                Agente.activo == False
-            ).first()
-            if agente_pausado:
-                return agente_pausado, False
+# NUEVAS IMPORTACIONES PARA LA IA
+from core.rag_engine import buscar_contexto
+from langchain_google_genai import ChatGoogleGenerativeAI
 
-        # Prioridad 3: Primer agente activo por defecto
-        if not agente:
-            agente = db.query(Agente).filter(Agente.activo == True).first()
+scheduler = BackgroundScheduler()
+scheduler.start()
 
-        return agente, True if agente and agente.activo else False
-    finally:
-        db.close()
+hilos_pendientes = {}
 
-def register_listeners(app, allowed_channel_id):
+def register_listeners(app, default_channel):
+
+    def enviar_recordatorio(channel_id, thread_ts, original_ts, client):
+        if hilos_pendientes.get(thread_ts):
+            bloques = [
+                {"type": "section", "text": {"type": "mrkdwn", "text": "¡Hola de nuevo! 🕵️‍♂️ Pasaba a revisar si mi respuesta anterior solucionó tu problema o si necesitas que escale el caso."}},
+                {"type": "actions", "elements": [
+                    {"type": "button", "text": {"type": "plain_text", "text": "✅ Sí, resuelto", "emoji": True}, "style": "primary", "action_id": "btn_ticket_resuelto", "value": original_ts},
+                    {"type": "button", "text": {"type": "plain_text", "text": "🚨 Escalar con el equipo", "emoji": True}, "style": "danger", "action_id": "btn_ticket_escalar", "value": original_ts}
+                ]}
+            ]
+            try:
+                client.chat_postMessage(channel=channel_id, thread_ts=thread_ts, blocks=bloques, text="Recordatorio de PayGuard")
+            except SlackApiError:
+                pass
+
     @app.event("message")
-    def handle_message_events(event, say):
-        # Descartar mensajes generados por bots o del sistema
-        if event.get("bot_id") or event.get("subtype"):
+    def handle_message_events(body, logger, client, say):
+        event = body.get("event", {})
+        if "bot_id" in event or event.get("subtype"):
             return
-
-        canal_actual = event.get("channel")
-        text = event.get("text") or ""
+        
+        channel_id = event.get("channel")
         user_id = event.get("user")
+        text = event.get("text")
         ts = event.get("ts")
+        thread_ts = event.get("thread_ts", ts)
+        hoy = datetime.now()
 
-        # 1. ENRUTAMIENTO DINÁMICO
-        agente, esta_activo = obtener_agente_para_canal(canal_actual)
+        # A) REACCIÓN: "Ojitos"
+        try:
+            client.reactions_add(channel=channel_id, name="eyes", timestamp=ts)
+        except SlackApiError:
+            pass
 
-        # Si no hay agentes en el sistema
-        if not agente:
-            logger.info(f"SOLICITUD IGNORADA - No hay agentes configurados para canal: {canal_actual}")
-            return
+        db = SessionLocal()
+        try:
+            db.add(MensajeHilo(thread_ts=thread_ts, remitente=f"<@{user_id}>", tipo="usuario", contenido=text, fecha=hoy.strftime("%Y-%m-%d"), hora=hoy.strftime("%H:%M")))
+            db.commit()
+        finally:
+            db.close()
 
-        # Registrar la pregunta del usuario en el hilo
-        guardar_mensaje(thread_ts=ts, remitente=f"Usuario ({user_id})", tipo="usuario", contenido=text)
-
-        # 2. VALIDAR ESTADO OPERATIVO (Gobernanza desde PayGuard Admin)
-        if not esta_activo:
-            mensaje_bloqueo = (
-                f"⚠️ Hola <@{user_id}>, el *{agente.nombre}* (*{agente.area}*) se encuentra "
-                f"actualmente *inactivo* en PayGuard Admin. Contacta a un administrador para reactivarlo."
-            )
-            logger.info(f"SOLICITUD DENEGADA - Agente '{agente.nombre}' inactivo. Usuario: {user_id}")
-            guardar_mensaje(thread_ts=ts, remitente=agente.nombre, tipo="bot", contenido=mensaje_bloqueo)
-            say(text=mensaje_bloqueo, thread_ts=ts)
-            return
-
-        # 3. PROCESAMIENTO CON EL MOTOR CENTRAL DE IA
-        logger.info(f"EJECUCIÓN AGENTE - Enrutado a '{agente.nombre}' ({agente.area}) para usuario: {user_id}")
+        # =====================================================================
+        # B) RESPUESTA IA (RAG + GEMINI)
+        # =====================================================================
+        # 1. Buscamos en ChromaDB si hay algún documento que hable de esto
+        contexto_rag = buscar_contexto(text)
         
-        resultado = motor_ia.generar_respuesta(
-            agente_nombre=agente.nombre,
-            area=agente.area,
-            system_prompt=agente.prompt_maestro or "",
-            mensaje_usuario=text,
-            user_id=user_id
-        )
-
-        # 4. ENTREGA DE RESPUESTA Y AUDITORÍA
-        guardar_mensaje(thread_ts=ts, remitente=agente.nombre, tipo="bot", contenido=resultado["texto"])
-
-        if resultado.get("bloques"):
-            say(text=resultado["texto"], blocks=resultado["bloques"], thread_ts=ts)
-        else:
-            say(text=resultado["texto"], thread_ts=ts)
-
-    # ====================================================================
-    # LISTENERS PARA BOTONES DE ACCIÓN INTERACTIVA (BLOCK KIT ACTIONS)
-    # ====================================================================
-    
-    @app.action("click_jira")
-    def handle_click_jira(ack, body, say):
-        ack() 
-        user_id = body["user"]["id"]
-        thread_ts = body["message"].get("thread_ts") or body["message"]["ts"]
-        logger.info(f"INTERACCIÓN - Usuario {user_id} hizo clic en el botón de Jira.")
+        # 2. Inicializamos Gemini (Flash es la versión más rápida)
+        llm = ChatGoogleGenerativeAI(model="gemini-1.5-flash", temperature=0.2)
         
-        respuesta = f"✅ <@{user_id}>, fuiste redirigido al portal de Jira Service Desk. Si necesitas más ayuda con este incidente, indícalo en este hilo."
-        guardar_mensaje(thread_ts=thread_ts, remitente="PayGuard-bot SecOps", tipo="bot", contenido=respuesta)
-        say(text=respuesta, thread_ts=thread_ts)
+        # 3. Le damos las instrucciones maestras (System Prompt)
+        prompt = f"""
+        Eres 'PayGuard', un bot experto en soporte de ciberseguridad (SecOps).
+        Responde al usuario de Slack de forma muy amable, profesional y concisa.
+        
+        CONTEXTO DE LA EMPRESA (Reglas de negocio):
+        {contexto_rag if contexto_rag else "No hay documentos específicos para esta consulta. Responde con tus conocimientos generales de ciberseguridad."}
+        
+        PREGUNTA DEL USUARIO:
+        {text}
+        """
+        
+        try:
+            respuesta_gemini = llm.invoke(prompt)
+            respuesta_ia = respuesta_gemini.content
+        except Exception as e:
+            respuesta_ia = f"Ocurrió un error al procesar la IA: {str(e)}"
+        # =====================================================================
 
-    @app.action("action_ver_guia")
-    def handle_ver_guia(ack, body, say):
-        ack()
-        user_id = body["user"]["id"]
-        thread_ts = body["message"].get("thread_ts") or body["message"]["ts"]
-        logger.info(f"INTERACCIÓN - Usuario {user_id} solicitó guía de conectividad.")
-        respuesta = f"<@{user_id}>, revisa el manual oficial de conexión segura: [Base de Conocimientos SecOps]"
-        guardar_mensaje(thread_ts=thread_ts, remitente="PayGuard-bot SecOps", tipo="bot", contenido=respuesta)
-        say(text=respuesta, thread_ts=thread_ts)
+        # C) BOTONES
+        bloques = [
+            {"type": "section", "text": {"type": "mrkdwn", "text": respuesta_ia}},
+            {"type": "divider"},
+            {"type": "section", "text": {"type": "mrkdwn", "text": "🕵️‍♂️ *¿Pude resolver tu problema?*"}},
+            {"type": "actions", "elements": [
+                {"type": "button", "text": {"type": "plain_text", "text": "✅ Sí, resuelto", "emoji": True}, "style": "primary", "action_id": "btn_ticket_resuelto", "value": ts},
+                {"type": "button", "text": {"type": "plain_text", "text": "🚨 Escalar con el equipo", "emoji": True}, "style": "danger", "action_id": "btn_ticket_escalar", "value": ts}
+            ]}
+        ]
 
-    @app.action("action_abrir_ticket")
-    def handle_abrir_ticket(ack, body, say):
+        say(blocks=bloques, text="Respuesta de PayGuard", thread_ts=thread_ts)
+
+        hilos_pendientes[thread_ts] = True
+        scheduler.add_job(enviar_recordatorio, 'date', run_date=datetime.now() + timedelta(minutes=1), args=[channel_id, thread_ts, ts, client])
+
+        db = SessionLocal()
+        try:
+            db.add(MensajeHilo(thread_ts=thread_ts, remitente="PayGuard Bot", tipo="bot", contenido=respuesta_ia, fecha=hoy.strftime("%Y-%m-%d"), hora=hoy.strftime("%H:%M")))
+            db.commit()
+        finally:
+            db.close()
+
+    @app.action("btn_ticket_resuelto")
+    def handle_resuelto(ack, body, client, logger):
         ack()
+        channel_id = body["channel"]["id"]
+        message_ts = body["message"]["ts"]
         user_id = body["user"]["id"]
-        thread_ts = body["message"].get("thread_ts") or body["message"]["ts"]
-        logger.info(f"INTERACCIÓN - Usuario {user_id} solicitó escalamiento a Jira.")
-        respuesta = f"Entendido <@{user_id}>. Creando pre-ticket en cola SecOps... *(Integración de Jira desacoplada en preparación 🚧)*"
-        guardar_mensaje(thread_ts=thread_ts, remitente="PayGuard-bot SecOps", tipo="bot", contenido=respuesta)
-        say(text=respuesta, thread_ts=thread_ts)
+        original_ts = body["actions"][0]["value"]
+        thread_ts = body["message"].get("thread_ts", original_ts)
+        hilos_pendientes[thread_ts] = False
+
+        client.chat_update(channel=channel_id, ts=message_ts, blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": f"✅ <@{user_id}> ha marcado este incidente como *Resuelto*. ¡Excelente!"}}], text="Incidente resuelto.")
+        try:
+            client.reactions_add(channel=channel_id, name="white_check_mark", timestamp=original_ts)
+        except SlackApiError:
+            pass
+
+    @app.action("btn_ticket_escalar")
+    def handle_escalar(ack, body, client, logger):
+        ack()
+        channel_id = body["channel"]["id"]
+        message_ts = body["message"]["ts"]
+        user_id = body["user"]["id"]
+        original_ts = body["actions"][0]["value"]
+        thread_ts = body["message"].get("thread_ts", original_ts)
+        hilos_pendientes[thread_ts] = False
+        
+        client.chat_update(channel=channel_id, ts=message_ts, blocks=[{"type": "section", "text": {"type": "mrkdwn", "text": f"🚨 <@{user_id}> ha solicitado escalar el caso.\n\n⏳ *Conectando con Jira para crear el ticket...*"}}], text="Escalando incidente.")

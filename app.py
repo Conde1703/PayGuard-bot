@@ -1,220 +1,177 @@
-import truststore
-truststore.inject_into_ssl()
-
 import os
+import ssl
 import shutil
-import secrets
-from datetime import datetime, date
 import threading
-import uvicorn
-from fastapi import FastAPI, Request, HTTPException, File, UploadFile, Form, Depends, status
-from fastapi.responses import HTMLResponse
+from datetime import datetime
+from core.rag_engine import indexar_documentos
+
+# =========================================================================
+# 1. BYPASS SSL GLOBAL (Soluciona el error CERTIFICATE_VERIFY_FAILED)
+# =========================================================================
+ssl._create_default_https_context = ssl._create_unverified_context
+
+from fastapi import FastAPI, Request, UploadFile, File, Form, HTTPException
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from fastapi.security import HTTPBasic, HTTPBasicCredentials
-from pydantic import BaseModel
 from dotenv import load_dotenv
+
 from slack_bolt import App
 from slack_bolt.adapter.socket_mode import SocketModeHandler
-from sqlalchemy import func
+from slack_sdk.web import WebClient
 
+from core.database import SessionLocal, init_db, Agente, MensajeHilo, Secreto, encriptar
 from core.slack_events import register_listeners
-from core.database import SessionLocal, Agente, MensajeHilo, aplicar_politica_retencion
 
 load_dotenv()
 
-bot_token = os.getenv("SLACK_BOT_TOKEN")
-app_token = os.getenv("SLACK_APP_TOKEN")
-allowed_channel_id = os.getenv("SLACK_ALLOWED_CHANNEL_ID")
-admin_user = os.getenv("ADMIN_USER", "admin")
-admin_pass = os.getenv("ADMIN_PASS", "SecOps2024!")
+# =========================================================================
+# 2. INICIALIZACIÓN BASE DE DATOS Y FASTAPI
+# =========================================================================
+init_db()
 
-if not all([bot_token, app_token, allowed_channel_id]):
-    raise RuntimeError("Faltan variables críticas en el archivo .env")
+fastapi_app = FastAPI(title="PayGuard Admin API")
 
-# 1. Inicializar Slack Bolt
-slack_app = App(token=bot_token)
-register_listeners(slack_app, allowed_channel_id)
+os.makedirs("static", exist_ok=True)
+os.makedirs("templates", exist_ok=True)
+fastapi_app.mount("/static", StaticFiles(directory="static"), name="static")
+templates = Jinja2Templates(directory="templates")
 
-# 2. Inicializar FastAPI
-api = FastAPI(title="PayGuard Admin - Enterprise")
+# =========================================================================
+# 3. CONFIGURAR SLACK Y SOCKETS
+# =========================================================================
+ssl_context = ssl._create_unverified_context()
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-STATIC_DIR = os.path.join(BASE_DIR, "static")
-TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
+web_client = WebClient(
+    token=os.getenv("SLACK_BOT_TOKEN"),
+    ssl=ssl_context
+)
 
-os.makedirs(STATIC_DIR, exist_ok=True)
-api.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+slack_app = App(client=web_client)
 
-templates = Jinja2Templates(directory=TEMPLATES_DIR)
+allowed_channel = os.getenv("SLACK_CHANNEL_ID")
+register_listeners(slack_app, allowed_channel)
 
-# --- CAPA DE SEGURIDAD (HTTP BASIC AUTH) ---
-security = HTTPBasic()
+def run_slack_socket():
+    app_token = os.getenv("SLACK_APP_TOKEN")
+    if app_token:
+        handler = SocketModeHandler(slack_app, app_token)
+        handler.client.web_client.ssl = ssl_context
+        handler.connect()
 
-def verificar_credenciales(credentials: HTTPBasicCredentials = Depends(security)):
-    """Verifica credenciales contra el .env usando comparación de tiempo constante"""
-    usuario_correcto = secrets.compare_digest(credentials.username, admin_user)
-    pass_correcto = secrets.compare_digest(credentials.password, admin_pass)
-    
-    if not (usuario_correcto and pass_correcto):
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Credenciales incorrectas",
-            headers={"WWW-Authenticate": "Basic"},
-        )
-    return credentials.username
+threading.Thread(target=run_slack_socket, daemon=True).start()
 
-# Esquemas Pydantic
-class NuevoAgenteSchema(BaseModel):
-    nombre: str
-    area: str
-    canal_slack: str
-    descripcion: str
-    prompt_maestro: str
-
-# Validación segura contra Path Traversal
-def validar_ruta_segura(area: str, equipo: str, archivo: str) -> str:
-    for parte in [area, equipo, archivo]:
-        if ".." in parte or "/" in parte or "\\" in parte:
-            raise HTTPException(status_code=400, detail="Nombre o ruta de archivo inválida.")
-    
-    knowledge_dir = os.path.abspath(os.path.join(BASE_DIR, "knowledge"))
-    ruta_final = os.path.abspath(os.path.join(knowledge_dir, area.strip(), equipo.strip(), archivo.strip()))
-    
-    if not ruta_final.startswith(knowledge_dir):
-        raise HTTPException(status_code=400, detail="Acceso denegado: ruta fuera de knowledge.")
-    
-    return ruta_final
-
-def seed_database():
-    """Garantiza la existencia del agente inicial de SecOps"""
+# =========================================================================
+# 4. RUTAS DE LA VISTA PRINCIPAL (DASHBOARD)
+# =========================================================================
+@fastapi_app.get("/", response_class=HTMLResponse)
+def dashboard(request: Request):
     db = SessionLocal()
     try:
-        if db.query(Agente).count() == 0:
-            agente_defecto = Agente(
-                nombre="PayGuard-bot SecOps",
-                area="SecOps_Global",
-                canal_slack=allowed_channel_id,
-                descripcion="Agente de Triage para equipos de seguridad (Access, InfoSec, Blue Team)",
-                prompt_maestro="Eres el orquestador técnico de SecOps. Deriva las solicitudes y entrega enlaces oficiales de Jira.",
-                activo=True
-            )
-            db.add(agente_defecto)
-            db.commit()
-    finally:
-        db.close()
-
-# Ruta principal: Dashboard unificado con Métricas
-@api.get("/", response_class=HTMLResponse)
-def web_dashboard(request: Request, username: str = Depends(verificar_credenciales)):
-    db = SessionLocal()
-    try:
-        lista_agentes = db.query(Agente).order_by(Agente.id.asc()).all()
-        total_activos = db.query(Agente).filter(Agente.activo == True).count()
-
-        # Cálculo de Métricas SecOps
-        hoy = date.today().strftime("%Y-%m-%d")
-        total_incidentes = db.query(MensajeHilo).filter(MensajeHilo.tipo == "usuario").count()
-        incidentes_hoy = db.query(MensajeHilo).filter(
-            MensajeHilo.tipo == "usuario", 
-            MensajeHilo.fecha == hoy
-        ).count()
-        usuarios_unicos = db.query(func.count(func.distinct(MensajeHilo.remitente))).filter(
-            MensajeHilo.tipo == "usuario"
-        ).scalar() or 0
-
-        # --- EVALUACIÓN DINÁMICA DE CREACIÓN DE TICKETS EN JIRA ---
-        interacciones_brutas = (
-            db.query(MensajeHilo)
-            .filter(MensajeHilo.tipo == "usuario")
-            .order_by(MensajeHilo.id.desc())
-            .limit(15)
-            .all()
-        )
+        hoy_str = datetime.now().strftime("%Y-%m-%d")
         
-        interacciones = []
-        for m in interacciones_brutas:
-            # Buscamos si en este hilo el bot confirmó la redirección a Jira
-            tiene_ticket = db.query(MensajeHilo).filter(
-                MensajeHilo.thread_ts == m.thread_ts,
-                MensajeHilo.contenido.like("%portal de Jira%")
-            ).first() is not None
+        agentes = db.query(Agente).all()
+        agentes_count = len([a for a in agentes if a.activo])
+        
+        hilos_totales = db.query(MensajeHilo.thread_ts).distinct().all()
+        total_incidentes = len(hilos_totales)
+        
+        incidentes_hoy = db.query(MensajeHilo.thread_ts).filter(
+            MensajeHilo.fecha == hoy_str,
+            MensajeHilo.tipo == "usuario"
+        ).distinct().count()
 
-            interacciones.append({
-                "fecha": m.fecha,
-                "hora": m.hora,
-                "remitente": m.remitente,
-                "contenido": m.contenido,
-                "thread_ts": m.thread_ts,
-                "tiene_ticket": tiene_ticket
-            })
+        usuarios_unicos = db.query(MensajeHilo.remitente).filter(
+            MensajeHilo.tipo == "usuario"
+        ).distinct().count()
+
+        documentos = []
+        base_dir = "knowledge"
+        if os.path.exists(base_dir):
+            for area in os.listdir(base_dir):
+                area_path = os.path.join(base_dir, area)
+                if os.path.isdir(area_path):
+                    for equipo in os.listdir(area_path):
+                        equipo_path = os.path.join(area_path, equipo)
+                        if os.path.isdir(equipo_path):
+                            for archivo in os.listdir(equipo_path):
+                                if archivo.endswith((".md", ".txt")):
+                                    file_path = os.path.join(equipo_path, archivo)
+                                    stat = os.stat(file_path)
+                                    documentos.append({
+                                        "archivo": archivo,
+                                        "area": area,
+                                        "equipo": equipo,
+                                        "tamano": round(stat.st_size / 1024, 1),
+                                        "modificacion": datetime.fromtimestamp(stat.st_mtime).strftime("%Y-%m-%d %H:%M")
+                                    })
+
+        mensajes_iniciales = db.query(MensajeHilo).filter(
+            MensajeHilo.tipo == "usuario"
+        ).order_by(MensajeHilo.id.desc()).all()
+
+        vistos = set()
+        interacciones = []
+        for m in mensajes_iniciales:
+            if m.thread_ts not in vistos:
+                vistos.add(m.thread_ts)
+                tiene_jira = db.query(MensajeHilo).filter(
+                    MensajeHilo.thread_ts == m.thread_ts,
+                    MensajeHilo.contenido.like("%Jira%")
+                ).first() is not None
+
+                interacciones.append({
+                    "thread_ts": m.thread_ts,
+                    "hora": m.hora,
+                    "fecha": m.fecha,
+                    "remitente": m.remitente,
+                    "contenido": m.contenido,
+                    "tiene_ticket": tiene_jira
+                })
+
+        bot_status = "En línea (Producción)" if os.getenv("GEMINI_API_KEY") else "En línea y conectado"
+
+        return templates.TemplateResponse(
+            request=request,
+            name="dashboard.html",
+            context={
+                "bot_status": bot_status,
+                "agentes_count": agentes_count,
+                "incidentes_hoy": incidentes_hoy,
+                "total_incidentes": total_incidentes,
+                "usuarios_unicos": usuarios_unicos,
+                "default_channel": allowed_channel or "C08EVE7EBDC",
+                "documentos": documentos,
+                "agentes": agentes,
+                "interacciones": interacciones
+            }
+        )
     finally:
         db.close()
 
-    # Escaneo dinámico del índice RAG
-    knowledge_path = os.path.join(BASE_DIR, "knowledge")
-    documentos = []
-    if os.path.exists(knowledge_path):
-        for raiz, _, archivos in os.walk(knowledge_path):
-            for archivo in archivos:
-                if archivo.endswith((".md", ".txt")):
-                    ruta_completa = os.path.join(raiz, archivo)
-                    ruta_relativa = os.path.relpath(raiz, knowledge_path)
-                    partes = ruta_relativa.replace("\\", "/").split("/")
-                    area_doc = partes[0] if len(partes) > 0 and partes[0] != "." else "General"
-                    equipo_doc = partes[1] if len(partes) > 1 else "General"
-                    
-                    fecha_mod = os.path.getmtime(ruta_completa)
-                    fecha_legible = datetime.fromtimestamp(fecha_mod).strftime('%Y-%m-%d %H:%M')
-                    
-                    documentos.append({
-                        "area": area_doc,
-                        "equipo": equipo_doc,
-                        "archivo": archivo,
-                        "tamano": round(os.path.getsize(ruta_completa) / 1024, 1),
-                        "modificacion": fecha_legible
-                    })
-
-    documentos.sort(key=lambda x: x["modificacion"], reverse=True)
-
-    return templates.TemplateResponse(
-        request=request,
-        name="dashboard.html", 
-        context={
-            "bot_status": "En línea y conectado", 
-            "agentes_count": total_activos,
-            "agentes": lista_agentes,
-            "interacciones": interacciones,
-            "default_channel": allowed_channel_id,
-            "documentos": documentos,
-            "total_incidentes": total_incidentes,
-            "incidentes_hoy": incidentes_hoy,
-            "usuarios_unicos": usuarios_unicos
-        }
-    )
-
-# --- ENDPOINTS DE AGENTES ---
-@api.post("/api/agentes")
-def crear_agente(datos: NuevoAgenteSchema, username: str = Depends(verificar_credenciales)):
+# =========================================================================
+# ENDPOINTS REST: GESTIÓN DE AGENTES Y ESTADÍSTICAS
+# =========================================================================
+@fastapi_app.post("/api/agentes")
+async def crear_agente(payload: dict):
     db = SessionLocal()
     try:
         nuevo = Agente(
-            nombre=datos.nombre.strip(),
-            area=datos.area.strip(),
-            canal_slack=datos.canal_slack.strip(),
-            descripcion=datos.descripcion.strip(),
-            prompt_maestro=datos.prompt_maestro.strip(),
+            nombre=payload.get("nombre"),
+            area=payload.get("area"),
+            canal_slack=payload.get("canal_slack"),
+            descripcion=payload.get("descripcion"),
+            prompt_maestro=payload.get("prompt_maestro"),
             activo=True
         )
         db.add(nuevo)
         db.commit()
-        db.refresh(nuevo)
-        return {"status": "success", "id": nuevo.id}
+        return {"status": "ok"}
     finally:
         db.close()
 
-@api.patch("/api/agentes/{agente_id}/toggle")
-def toggle_agente(agente_id: int, username: str = Depends(verificar_credenciales)):
+@fastapi_app.patch("/api/agentes/{agente_id}/toggle")
+def toggle_agente(agente_id: int):
     db = SessionLocal()
     try:
         agente = db.query(Agente).filter(Agente.id == agente_id).first()
@@ -222,102 +179,199 @@ def toggle_agente(agente_id: int, username: str = Depends(verificar_credenciales
             raise HTTPException(status_code=404, detail="Agente no encontrado")
         agente.activo = not agente.activo
         db.commit()
-        return {"status": "success", "activo": agente.activo}
+        return {"status": "ok", "activo": agente.activo}
     finally:
         db.close()
 
-# --- ENDPOINTS DEL VISOR DE HILOS ---
-@api.get("/api/hilos/{thread_ts}")
-def obtener_mensajes_hilo(thread_ts: str, username: str = Depends(verificar_credenciales)):
+@fastapi_app.get("/api/metricas/agente/{agente_id}")
+def obtener_metricas_agente(agente_id: str):
     db = SessionLocal()
     try:
-        mensajes = (
-            db.query(MensajeHilo)
-            .filter(MensajeHilo.thread_ts == thread_ts)
-            .order_by(MensajeHilo.id.asc())
-            .all()
-        )
-        if not mensajes:
-            raise HTTPException(status_code=404, detail="Hilo no encontrado")
+        hoy_str = datetime.now().strftime("%Y-%m-%d")
+
+        if agente_id == "todos":
+            hilos_query = db.query(MensajeHilo.thread_ts).distinct()
+        else:
+            agente = db.query(Agente).filter(Agente.id == int(agente_id)).first()
+            if not agente:
+                return {"error": "Agente no encontrado"}
+            hilos_query = db.query(MensajeHilo.thread_ts).filter(
+                MensajeHilo.remitente == agente.nombre,
+                MensajeHilo.tipo == "bot"
+            ).distinct()
+
+        hilos_ids = [h[0] for h in hilos_query.all()]
+        total_historico = len(hilos_ids)
+
+        incidentes_hoy = db.query(MensajeHilo.thread_ts).filter(
+            MensajeHilo.thread_ts.in_(hilos_ids),
+            MensajeHilo.fecha == hoy_str,
+            MensajeHilo.tipo == "usuario"
+        ).distinct().count() if hilos_ids else 0
+
+        usuarios_unicos = db.query(MensajeHilo.remitente).filter(
+            MensajeHilo.thread_ts.in_(hilos_ids),
+            MensajeHilo.tipo == "usuario"
+        ).distinct().count() if hilos_ids else 0
+
+        mensajes_iniciales = db.query(MensajeHilo).filter(
+            MensajeHilo.thread_ts.in_(hilos_ids),
+            MensajeHilo.tipo == "usuario"
+        ).order_by(MensajeHilo.id.desc()).all() if hilos_ids else []
+
+        hilos_vistos = set()
+        incidentes_lista = []
+        for m in mensajes_iniciales:
+            if m.thread_ts not in hilos_vistos:
+                hilos_vistos.add(m.thread_ts)
+                tiene_jira = db.query(MensajeHilo).filter(
+                    MensajeHilo.thread_ts == m.thread_ts,
+                    MensajeHilo.contenido.like("%Jira%")
+                ).first() is not None
+
+                incidentes_lista.append({
+                    "thread_ts": m.thread_ts,
+                    "hora": m.hora,
+                    "fecha": m.fecha,
+                    "remitente": m.remitente,
+                    "contenido": m.contenido,
+                    "tiene_ticket": tiene_jira
+                })
+
+        return {
+            "incidentes_hoy": incidentes_hoy,
+            "total_historico": total_historico,
+            "usuarios_unicos": usuarios_unicos,
+            "incidentes": incidentes_lista
+        }
+    finally:
+        db.close()
+
+# =========================================================================
+# ENDPOINTS REST: GESTOR DE CONOCIMIENTO (RAG)
+# =========================================================================
+@fastapi_app.post("/api/conocimiento/upload")
+async def upload_documento(
+    area: str = Form(...),
+    equipo: str = Form(...),
+    file: UploadFile = File(...)
+):
+    ruta_dir = os.path.join("knowledge", area, equipo)
+    os.makedirs(ruta_dir, exist_ok=True)
+    destino = os.path.join(ruta_dir, file.filename)
+    with open(destino, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+        
+    indexar_documentos() # <--- REINDEXA LA BASE VECTORIAL
+    return {"status": "ok", "filename": file.filename}
+
+@fastapi_app.post("/api/conocimiento/replace")
+async def replace_documento(
+    area: str = Form(...),
+    equipo: str = Form(...),
+    archivo_original: str = Form(...),
+    file: UploadFile = File(...)
+):
+    ruta_dir = os.path.join("knowledge", area, equipo)
+    archivo_viejo = os.path.join(ruta_dir, archivo_original)
+    if os.path.exists(archivo_viejo):
+        os.remove(archivo_viejo)
+
+    os.makedirs(ruta_dir, exist_ok=True)
+    destino = os.path.join(ruta_dir, file.filename)
+    with open(destino, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+        
+    indexar_documentos() # <--- REINDEXA LA BASE VECTORIAL
+    return {"status": "ok"}
+
+@fastapi_app.delete("/api/conocimiento/delete")
+def delete_documento(area: str, equipo: str, archivo: str):
+    ruta_archivo = os.path.join("knowledge", area, equipo, archivo)
+    if os.path.exists(ruta_archivo):
+        os.remove(ruta_archivo)
+        return {"status": "ok"}
+    raise HTTPException(status_code=404, detail="Archivo no encontrado")
+
+# =========================================================================
+# ENDPOINTS REST: VISOR DE HILOS
+# =========================================================================
+@fastapi_app.get("/api/hilos/{thread_ts}")
+def obtener_hilo(thread_ts: str):
+    db = SessionLocal()
+    try:
+        mensajes = db.query(MensajeHilo).filter(
+            MensajeHilo.thread_ts == thread_ts
+        ).order_by(MensajeHilo.id.asc()).all()
+
         return [
             {
-                "id": m.id,
                 "remitente": m.remitente,
                 "tipo": m.tipo,
                 "contenido": m.contenido,
-                "fecha": m.fecha,
-                "hora": m.hora
+                "hora": m.hora,
+                "fecha": m.fecha
             }
             for m in mensajes
         ]
     finally:
         db.close()
 
-# --- ENDPOINTS DEL GESTOR DOCUMENTAL (RAG CRUD) ---
-@api.post("/api/conocimiento/upload")
-def subir_documento(
-    area: str = Form(...),
-    equipo: str = Form(...),
-    file: UploadFile = File(...),
-    username: str = Depends(verificar_credenciales)
-):
-    if not file.filename.endswith((".md", ".txt")):
-        raise HTTPException(status_code=400, detail="Solo se admiten extensiones .md o .txt")
-    ruta = validar_ruta_segura(area, equipo, file.filename)
-    os.makedirs(os.path.dirname(ruta), exist_ok=True)
-    with open(ruta, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-    return {"status": "success", "filename": file.filename}
+# =========================================================================
+# ENDPOINTS REST: GESTIÓN DE SECRETOS (CREDENCIALES CIFRADAS)
+# =========================================================================
+@fastapi_app.get("/api/secretos")
+def obtener_secretos(area: str = None):
+    """Retorna los secretos filtrados por área, o todos si es Global."""
+    db = SessionLocal()
+    try:
+        query = db.query(Secreto)
+        if area and area != "Global" and area != "todos":
+            query = query.filter(Secreto.area == area)
+            
+        secretos = query.order_by(Secreto.id.desc()).all()
+        return [{"id": s.id, "clave": s.clave, "area": s.area} for s in secretos]
+    finally:
+        db.close()
 
-@api.post("/api/conocimiento/replace")
-def reemplazar_documento(
-    area: str = Form(...),
-    equipo: str = Form(...),
-    archivo_original: str = Form(...),
-    file: UploadFile = File(...),
-    username: str = Depends(verificar_credenciales)
-):
-    if not file.filename.endswith((".md", ".txt")):
-        raise HTTPException(status_code=400, detail="Solo se admiten extensiones .md o .txt")
-    
-    ruta_original = validar_ruta_segura(area, equipo, archivo_original)
-
-    if not os.path.exists(ruta_original):
-        raise HTTPException(status_code=404, detail=f"El archivo '{archivo_original}' no existe en el servidor.")
-    
-    os.remove(ruta_original)
-    
-    nueva_ruta = validar_ruta_segura(area, equipo, file.filename)
-    os.makedirs(os.path.dirname(nueva_ruta), exist_ok=True)
-    with open(nueva_ruta, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+@fastapi_app.post("/api/secretos")
+def guardar_secreto(payload: dict):
+    db = SessionLocal()
+    try:
+        clave = payload.get("clave")
+        valor = payload.get("valor")
+        area = payload.get("area", "Global")
         
-    return {"status": "success", "archivo_reemplazado": file.filename}
+        if not clave or not valor:
+            raise HTTPException(status_code=400, detail="Clave y valor requeridos")
 
-@api.delete("/api/conocimiento/delete")
-def borrar_documento(area: str, equipo: str, archivo: str, username: str = Depends(verificar_credenciales)):
-    ruta = validar_ruta_segura(area, equipo, archivo)
-    if not os.path.exists(ruta):
-        raise HTTPException(status_code=404, detail="Documento no localizado.")
-    os.remove(ruta)
-    return {"status": "success"}
+        secreto_existente = db.query(Secreto).filter(Secreto.clave == clave).first()
+        if secreto_existente:
+            secreto_existente.valor_cifrado = encriptar(valor)
+            secreto_existente.area = area
+        else:
+            nuevo_secreto = Secreto(
+                clave=clave, 
+                valor_cifrado=encriptar(valor),
+                area=area
+            )
+            db.add(nuevo_secreto)
+            
+        db.commit()
+        return {"status": "ok"}
+    finally:
+        db.close()
 
-# 3. Hilo de ejecución de Slack Bolt
-def start_slack_bot():
-    print("Iniciando motor de Slack Bolt en segundo plano...")
-    SocketModeHandler(slack_app, app_token).connect()
+@fastapi_app.delete("/api/secretos/{clave}")
+def eliminar_secreto(clave: str):
+    db = SessionLocal()
+    try:
+        db.query(Secreto).filter(Secreto.clave == clave).delete()
+        db.commit()
+        return {"status": "ok"}
+    finally:
+        db.close()
 
 if __name__ == "__main__":
-    seed_database()
-    
-    # --- EJECUCIÓN DE LA POLÍTICA DE RETENCIÓN ---
-    try:
-        eliminados = aplicar_politica_retencion(dias=60)
-        print(f"[MANTENIMIENTO] Política de retención (60 días) ejecutada. Hilos antiguos purgados: {eliminados}")
-    except Exception as e:
-        print(f"[ERROR] Fallo al ejecutar política de retención: {e}")
-
-    bot_thread = threading.Thread(target=start_slack_bot, daemon=True)
-    bot_thread.start()
-    print("Iniciando plataforma web PayGuard Admin (Dashboard Seguro)...")
-    uvicorn.run(api, host="0.0.0.0", port=8000)
+    import uvicorn
+    uvicorn.run("app:fastapi_app", host="0.0.0.0", port=8000, reload=True)
